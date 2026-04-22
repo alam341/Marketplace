@@ -68,7 +68,17 @@ async function dbUpdateTransactionStatus(id, status) {
 
 async function dbBulkInsertTransactions(rows) {
   const session = await sbGetSession();
-  const inserts = rows.map((r, i) => ({ ...r, adv_id: session.user.id, id: 'TRX-' + Date.now() + '-' + i }));
+  const inserts = rows.map((r, i) => ({
+    id:          'TRX-' + Date.now() + '-' + i,
+    adv_id:      session.user.id,
+    sku:         r.sku,
+    product:     r.product,
+    qty:         r.qty,
+    price:       r.price,
+    date:        r.date,
+    marketplace: r.marketplace,
+    status:      r.status || 'selesai',
+  }));
   const { data, error } = await _sb.from('transactions').insert(inserts).select();
   if (error) throw error;
   return data;
