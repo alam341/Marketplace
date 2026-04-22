@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Login — MarketDash</title>
+<link rel="stylesheet" href="css/main.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+<div class="login-page">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="logo-icon" style="background:#4361EE;color:#fff;width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1.3rem">M</div>
+      <span class="logo-text" style="font-size:1.3rem;font-weight:700">MarketDash</span>
+    </div>
+    <h2>Selamat Datang 👋</h2>
+    <p>Login untuk mengakses dashboard marketplace Anda</p>
+
+    <div class="login-error" id="loginError">Username atau password salah.</div>
+
+    <div class="form-group">
+      <label>Username</label>
+      <input type="text" id="username" placeholder="Masukkan username" autocomplete="username">
+    </div>
+    <div class="form-group">
+      <label>Password</label>
+      <input type="password" id="password" placeholder="Masukkan password" autocomplete="current-password">
+    </div>
+
+    <button class="btn-login" onclick="doLogin()">Masuk</button>
+
+    <div class="demo-creds">
+      <h4>Demo Credentials</h4>
+      <div class="demo-item">👑 <strong>SPV</strong> — spv / password123 (lihat semua team)</div>
+      <div class="demo-item">📣 <strong>ADV</strong> — adv1–adv4 / password123 (data pribadi)</div>
+      <div class="demo-quick">
+        <button onclick="quickLogin('spv')">SPV – Andi</button>
+        <button onclick="quickLogin('adv1')">ADV – Budi</button>
+        <button onclick="quickLogin('adv2')">ADV – Sari</button>
+        <button onclick="quickLogin('adv3')">ADV – Ahmad</button>
+        <button onclick="quickLogin('adv4')">ADV – Rina</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="js/data.js"></script>
+<script src="js/auth.js"></script>
+<script>
+  if (getCurrentUser()) window.location.href = 'dashboard.html';
+
+  function doLogin() {
+    const u = document.getElementById('username').value.trim();
+    const p = document.getElementById('password').value;
+    const user = login(u, p);
+    if (user) {
+      window.location.href = 'dashboard.html';
+    } else {
+      const err = document.getElementById('loginError');
+      err.style.display = 'block';
+      setTimeout(() => err.style.display = 'none', 3000);
+    }
+  }
+
+  function quickLogin(username) {
+    document.getElementById('username').value = username;
+    document.getElementById('password').value = 'password123';
+    doLogin();
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter') doLogin();
+  });
+</script>
+</body>
+</html>

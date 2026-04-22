@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Transaction — MarketDash</title>
+<link rel="stylesheet" href="css/main.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+<div class="app-shell">
+  <div id="sidebar-slot"></div>
+  <div class="main-content">
+    <div id="header-slot"></div>
+    <div class="page" id="pageContent"></div>
+  </div>
+</div>
+<script src="js/data.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/app.js"></script>
+<script>
+const user = requireAuth();
+if (user) { renderLayout('transaction', user); renderTransaction(user); }
+
+function renderTransaction(user) {
+  const isSPV = user.role === 'spv';
+  const allTrx = isSPV ? TRANSACTIONS : TRANSACTIONS.filter(t => t.adv === user.id);
+
+  const totalOmset  = allTrx.filter(t=>t.status!=='dibatalkan').reduce((s,t)=>s+t.qty*t.price, 0);
+  const totalQty    = allTrx.filter(t=>t.status!=='dibatalkan').reduce((s,t)=>s+t.qty, 0);
+  const totalOrders = allTrx.filter(t=>t.status!=='dibatalkan').length;
+  const cancelled   = allTrx.filter(t=>t.status==='dibatalkan').length;
+
+  document.getElementById('pageContent').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px">
+      <div>
+        <h2 style="font-weight:800">Transaction</h2>
+        <div style="color:#8A94A6;font-size:.85rem">Riwayat transaksi marketplace</div>
+      </div>
+      <button class="btn btn-primary" onclick="exportTrxCSV()">⬇ Export CSV</button>
+    </div>
+
+    <!-- Stats -->
+    <div class="stat-grid" style="margin-bottom:18px">
+      <div class="stat-card primary">
+        <div class="stat-label">Total Omset</div>
+        <div class="stat-value">${fmt(totalOmset)}</div>
+        <div class="stat-sub">Transaksi berhasil</div>
+        <div class="stat-icon">💰</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total Order</div>
+        <div class="stat-value">${totalOrders}</div>
+        <div class="stat-sub">Selesai + diproses</div>
+        <div class="stat-icon">📋</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total Qty</div>
+        <div class="stat-value">${totalQty.toLocaleString('id-ID')}</div>
+        <div class="stat-sub">Unit terjual</div>
+        <div class="stat-icon">📦</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Dibatalkan</div>
+        <div class="stat-value" style="color:#EF233C">${cancelled}</div>
+        <div class="stat-sub">Order batal</div>
+        <div class="stat-icon">❌</div>
+      </div>
+    </div>
+
+    <!-- Chart row -->
+    <div class="two-col" style="margin-bottom:18px">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-header-left"><h3>Omset per Marketplace</h3><div class="card-sub">Dari semua transaksi</div></div>
+        </div>
+        <div class="chart-container" style="height:200px">
+          <canvas id="mpOmsetChart"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-header-left"><h3>Status Transaksi</h3></div>
+        </div>
+        <div class="chart-container" style="height:200px">
+          <canvas id="statusChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card">
+      <div class="card-header" style="margin-bottom:14px">
+        <div class="card-header-left"><h3>Semua Transaksi</h3></div>
+      </div>
+      <div class="controls" style="margin-bottom:14px;flex-wrap:wrap">
+        <input type="text" class="ctrl-input" placeholder="🔍 Cari ID / produk / SKU..." oninput="filterTrx()" id="trxSearch" style="min-width:200px">
+        <select class="ctrl-select" id="filterMP" onchange="filterTrx()">
+          <option value="">Semua Marketplace</option>
+          <option value="shopee">Shopee</option>
+          <option value="lazada">Lazada</option>
+          <option value="tiktok">TikTok</option>
+        </select>
+        <select class="ctrl-select" id="filterStatus" onchange="filterTrx()">
+          <option value="">Semua Status</option>
+          <option value="selesai">Selesai</option>
+          <option value="diproses">Diproses</option>
+          <option value="dibatalkan">Dibatalkan</option>
+        </select>
+        ${isSPV ? `
+        <select class="ctrl-select" id="filterAdv" onchange="filterTrx()">
+          <option value="">Semua ADV</option>
+          ${['adv1','adv2','adv3','adv4'].map(id => `<option value="${id}">${getUser(id).name.split(' ')[0]}</option>`).join('')}
+        </select>` : ''}
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>ID Transaksi</th>
+            ${isSPV ? '<th>ADV</th>' : ''}
+            <th>Produk</th><th>Marketplace</th>
+            <th>Tanggal</th><th>Qty</th><th>Total Omset</th><th>Status</th>
+          </tr></thead>
+          <tbody id="trxTable"></tbody>
+        </table>
+      </div>
+      <div style="margin-top:10px;font-size:.8rem;color:#8A94A6" id="trxInfo"></div>
+    </div>
+  `;
+
+  window._allTrx = allTrx;
+  window._isSPV  = isSPV;
+  filterTrx();
+
+  // MP Omset chart
+  const mpOmset = { shopee:0, lazada:0, tiktok:0 };
+  allTrx.filter(t=>t.status!=='dibatalkan').forEach(t => { mpOmset[t.marketplace] += t.qty*t.price; });
+  new Chart(document.getElementById('mpOmsetChart'), {
+    type: 'bar',
+    data: {
+      labels: ['Shopee', 'Lazada', 'TikTok'],
+      datasets: [{
+        data: [mpOmset.shopee, mpOmset.lazada, mpOmset.tiktok],
+        backgroundColor: ['#EE4D2D','#0F146D','#555'],
+        borderRadius: 8, borderSkipped: false,
+      }]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false} },
+      scales:{
+        x:{grid:{display:false}},
+        y:{grid:{color:'#F0F0F0'},ticks:{callback:v=>fmt(v)}}
+      }
+    }
+  });
+
+  // Status pie
+  const statusCount = { selesai:0, diproses:0, dibatalkan:0 };
+  allTrx.forEach(t => { statusCount[t.status]++; });
+  new Chart(document.getElementById('statusChart'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Selesai','Diproses','Dibatalkan'],
+      datasets: [{ data:[statusCount.selesai,statusCount.diproses,statusCount.dibatalkan],
+        backgroundColor:['#06C270','#FFB703','#EF233C'],
+        borderWidth:3, borderColor:'#fff', hoverOffset:6 }]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false, cutout:'60%',
+      plugins:{ legend:{ position:'bottom', labels:{font:{size:11}} } }
+    }
+  });
+}
+
+function filterTrx() {
+  const q      = (document.getElementById('trxSearch')?.value||'').toLowerCase();
+  const mp     = document.getElementById('filterMP')?.value||'';
+  const status = document.getElementById('filterStatus')?.value||'';
+  const adv    = document.getElementById('filterAdv')?.value||'';
+  const isSPV  = window._isSPV;
+
+  let list = window._allTrx || [];
+  if (q)      list = list.filter(t => t.id.toLowerCase().includes(q) || t.product.toLowerCase().includes(q) || t.sku.toLowerCase().includes(q));
+  if (mp)     list = list.filter(t => t.marketplace === mp);
+  if (status) list = list.filter(t => t.status === status);
+  if (adv)    list = list.filter(t => t.adv === adv);
+
+  const body = document.getElementById('trxTable');
+  if (!list.length) {
+    body.innerHTML = `<tr><td colspan="${isSPV?8:7}" class="empty"><div class="icon">🔍</div>Tidak ada transaksi</td></tr>`;
+    document.getElementById('trxInfo').textContent = '';
+    return;
+  }
+
+  body.innerHTML = list.map(t => {
+    const advUser = getUser(t.adv);
+    return `
+      <tr>
+        <td style="font-family:monospace;font-size:.76rem;color:#8A94A6">${t.id}</td>
+        ${isSPV ? `<td><div style="display:flex;align-items:center;gap:6px"><div class="user-avatar sm" style="background:#4361EE;font-size:.65rem">${advUser?.avatar||'?'}</div>${advUser?.name.split(' ')[0]||'-'}</div></td>` : ''}
+        <td>
+          <div style="font-weight:600">${t.product}</div>
+          <div style="font-size:.73rem;color:#8A94A6">${t.sku}</div>
+        </td>
+        <td>${badgeMarketplace(t.marketplace)}</td>
+        <td style="color:#4A5568">${t.date}</td>
+        <td style="font-weight:700">${t.qty}</td>
+        <td style="font-weight:800;color:#4361EE">${fmtFull(t.qty * t.price)}</td>
+        <td>${badgeStatus(t.status)}</td>
+      </tr>
+    `;
+  }).join('');
+
+  const totalOmset = list.filter(t=>t.status!=='dibatalkan').reduce((s,t)=>s+t.qty*t.price,0);
+  document.getElementById('trxInfo').textContent =
+    `Menampilkan ${list.length} transaksi · Total omset: ${fmtFull(totalOmset)}`;
+
+  window._filteredTrx = list;
+}
+
+function exportTrxCSV() {
+  const list = window._filteredTrx || window._allTrx || [];
+  const rows = [['ID','ADV','Produk','SKU','Marketplace','Tanggal','Qty','Total Omset','Status']];
+  list.forEach(t => {
+    const advUser = getUser(t.adv);
+    rows.push([t.id, advUser?.name||t.adv, t.product, t.sku, t.marketplace, t.date, t.qty, t.qty*t.price, t.status]);
+  });
+  const csv = rows.map(r => r.map(v=>`"${v}"`).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent(csv);
+  a.download = 'transaksi.csv';
+  a.click();
+}
+</script>
+</body>
+</html>

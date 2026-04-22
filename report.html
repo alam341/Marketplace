@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Report — MarketDash</title>
+<link rel="stylesheet" href="css/main.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+<div class="app-shell">
+  <div id="sidebar-slot"></div>
+  <div class="main-content">
+    <div id="header-slot"></div>
+    <div class="page" id="pageContent"></div>
+  </div>
+</div>
+<script src="js/data.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/app.js"></script>
+<script>
+const user = requireAuth();
+if (user) { renderLayout('report', user); renderReport(user); }
+
+function renderReport(user) {
+  const isSPV = user.role === 'spv';
+  const advIds = isSPV ? ['adv1','adv2','adv3','adv4'] : [user.id];
+
+  document.getElementById('pageContent').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px">
+      <div>
+        <h2 style="font-weight:800">Laporan Revenue</h2>
+        <div style="color:#8A94A6;font-size:.85rem">Analisis performa penjualan marketplace</div>
+      </div>
+      <button class="btn btn-primary" onclick="exportCSV()">⬇ Export CSV</button>
+    </div>
+
+    ${isSPV ? `
+    <!-- ADV Filter (SPV only) -->
+    <div class="card" style="margin-bottom:18px">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <span style="font-size:.85rem;font-weight:600;color:#4A5568">Filter ADV:</span>
+        <button class="btn btn-primary btn-sm" onclick="setAdvFilter('all')">Semua Tim</button>
+        ${['adv1','adv2','adv3','adv4'].map(id => {
+          const u = getUser(id);
+          return `<button class="btn btn-outline btn-sm" onclick="setAdvFilter('${id}')" id="btnAdv-${id}">${u.name.split(' ')[0]}</button>`;
+        }).join('')}
+      </div>
+    </div>` : ''}
+
+    <!-- Summary cards -->
+    <div class="stat-grid" id="summaryCards"></div>
+
+    <!-- Main chart -->
+    <div class="card" style="margin-bottom:18px">
+      <div class="card-header">
+        <div class="card-header-left">
+          <h3>Revenue Bulanan</h3>
+          <div class="card-sub">Jan – Jul 2024</div>
+        </div>
+      </div>
+      <div class="chart-container" style="height:260px">
+        <canvas id="mainChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Marketplace breakdown + monthly table -->
+    <div class="two-col">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-header-left"><h3>Per Marketplace</h3><div class="card-sub">Bulan ini</div></div>
+        </div>
+        <div class="chart-container" style="height:200px">
+          <canvas id="mpChart"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-header-left"><h3>Tabel Bulanan</h3></div>
+        </div>
+        <div class="table-wrap">
+          <table id="monthlyTable">
+            <thead><tr><th>Bulan</th><th>Shopee</th><th>Lazada</th><th>TikTok</th><th>Total</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+
+  window._currentAdvFilter = 'all';
+  updateReport(isSPV, advIds);
+}
+
+let mainChartInst, mpChartInst;
+
+function setAdvFilter(filter) {
+  window._currentAdvFilter = filter;
+  document.querySelectorAll('[id^="btnAdv-"]').forEach(b => b.className = 'btn btn-outline btn-sm');
+  if (filter !== 'all') {
+    const btn = document.getElementById(`btnAdv-${filter}`);
+    if (btn) btn.className = 'btn btn-primary btn-sm';
+  }
+  const user = getCurrentUser();
+  const isSPV = user.role === 'spv';
+  const ids = filter === 'all' ? ['adv1','adv2','adv3','adv4'] : [filter];
+  updateReport(isSPV, ids);
+}
+
+function updateReport(isSPV, advIds) {
+  // Aggregate monthly
+  const shopeeM = MONTHS.map((_, i) => advIds.reduce((s,id) => s + MONTHLY_REVENUE[id].shopee[i], 0) * 1e6);
+  const lazadaM = MONTHS.map((_, i) => advIds.reduce((s,id) => s + MONTHLY_REVENUE[id].lazada[i], 0) * 1e6);
+  const tiktokM = MONTHS.map((_, i) => advIds.reduce((s,id) => s + MONTHLY_REVENUE[id].tiktok[i], 0) * 1e6);
+  const totalM  = MONTHS.map((_, i) => shopeeM[i] + lazadaM[i] + tiktokM[i]);
+
+  const lastI = MONTHS.length - 1;
+  const prevI = MONTHS.length - 2;
+  const total     = totalM[lastI];
+  const totalPrev = totalM[prevI];
+  const growth    = ((total - totalPrev) / totalPrev * 100).toFixed(1);
+
+  // Summary cards
+  document.getElementById('summaryCards').innerHTML = `
+    <div class="stat-card primary">
+      <div class="stat-label">Total Revenue (Jul)</div>
+      <div class="stat-value">${fmt(total)}</div>
+      <div class="stat-sub">vs Jun &nbsp; ${growthBadge(growth)}</div>
+      <div class="stat-icon">💰</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Shopee (Jul)</div>
+      <div class="stat-value">${fmt(shopeeM[lastI])}</div>
+      <div class="stat-sub" style="color:#EE4D2D">● Shopee</div>
+      <div class="stat-icon">🛍️</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Lazada (Jul)</div>
+      <div class="stat-value">${fmt(lazadaM[lastI])}</div>
+      <div class="stat-sub" style="color:#0F146D">● Lazada</div>
+      <div class="stat-icon">🏪</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">TikTok (Jul)</div>
+      <div class="stat-value">${fmt(tiktokM[lastI])}</div>
+      <div class="stat-sub" style="color:#1A1A1A">● TikTok</div>
+      <div class="stat-icon">🎵</div>
+    </div>
+  `;
+
+  // Monthly table
+  const tbody = document.querySelector('#monthlyTable tbody');
+  tbody.innerHTML = MONTHS.map((m, i) => `
+    <tr>
+      <td style="font-weight:700">${m}</td>
+      <td>${fmt(shopeeM[i])}</td>
+      <td>${fmt(lazadaM[i])}</td>
+      <td>${fmt(tiktokM[i])}</td>
+      <td style="font-weight:800;color:#4361EE">${fmt(totalM[i])}</td>
+    </tr>
+  `).join('');
+
+  // Main line chart
+  if (mainChartInst) mainChartInst.destroy();
+  mainChartInst = new Chart(document.getElementById('mainChart'), {
+    type: 'line',
+    data: {
+      labels: MONTHS,
+      datasets: [
+        { label:'Shopee', data: shopeeM.map(v=>v/1e6), borderColor:'#EE4D2D', backgroundColor:'rgba(238,77,45,.08)', tension:.4, fill:true, pointRadius:4, pointBackgroundColor:'#EE4D2D' },
+        { label:'Lazada', data: lazadaM.map(v=>v/1e6), borderColor:'#0F146D', backgroundColor:'rgba(15,20,109,.08)',  tension:.4, fill:true, pointRadius:4, pointBackgroundColor:'#0F146D' },
+        { label:'TikTok', data: tiktokM.map(v=>v/1e6), borderColor:'#888',    backgroundColor:'rgba(100,100,100,.06)',tension:.4, fill:true, pointRadius:4, pointBackgroundColor:'#888' },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position:'top', labels:{ font:{size:11} } } },
+      scales: {
+        x: { grid:{display:false} },
+        y: { grid:{color:'#F0F0F0'}, ticks:{callback:v=>'Rp'+v+'Jt'} }
+      }
+    }
+  });
+
+  // Donut MP chart
+  if (mpChartInst) mpChartInst.destroy();
+  mpChartInst = new Chart(document.getElementById('mpChart'), {
+    type: 'pie',
+    data: {
+      labels: ['Shopee', 'Lazada', 'TikTok'],
+      datasets: [{ data:[shopeeM[lastI], lazadaM[lastI], tiktokM[lastI]],
+        backgroundColor:['#EE4D2D','#0F146D','#888'], borderWidth:3, borderColor:'#fff', hoverOffset:8 }]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ position:'bottom', labels:{font:{size:11}} } }
+    }
+  });
+
+  // Store for export
+  window._reportData = { MONTHS, shopeeM, lazadaM, tiktokM, totalM };
+}
+
+function exportCSV() {
+  const d = window._reportData;
+  if (!d) return;
+  const rows = [['Bulan','Shopee','Lazada','TikTok','Total']];
+  d.MONTHS.forEach((m, i) => rows.push([m, d.shopeeM[i], d.lazadaM[i], d.tiktokM[i], d.totalM[i]]));
+  const csv = rows.map(r => r.join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent(csv);
+  a.download = 'report-revenue.csv';
+  a.click();
+}
+</script>
+</body>
+</html>
