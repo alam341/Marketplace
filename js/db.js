@@ -66,22 +66,44 @@ async function dbUpdateTransactionStatus(id, status) {
   if (error) throw error;
 }
 
-async function dbBulkInsertTransactions(rows) {
+async function dbBulkInsertMarketplaceOrders(marketplace, rows) {
   const session = await sbGetSession();
-  const inserts = rows.map((r, i) => ({
-    id:          'TRX-' + Date.now() + '-' + i,
-    adv_id:      session.user.id,
-    sku:         r.sku,
-    product:     r.product,
-    qty:         r.qty,
-    price:       r.price,
-    date:        r.date,
-    marketplace: r.marketplace,
-    status:      r.status || 'selesai',
+  const table = marketplace + '_orders';
+  const inserts = rows.map(r => ({
+    id:         r.id,
+    date:       r.date,
+    sku:        r.sku,
+    product:    r.product,
+    qty:        r.qty,
+    unit_price: r.unit_price,
+    total:      r.total,
+    status:     r.status,
+    adv_id:     session.user.id,
   }));
-  const { data, error } = await _sb.from('transactions').insert(inserts).select();
+  const { data, error } = await _sb.from(table).insert(inserts).select();
   if (error) throw error;
   return data;
+}
+
+async function dbGetAllMarketplaceOrders(filters = {}) {
+  const tables = ['shopee', 'tiktok', 'lazada'];
+  const queries = tables.map(mp => {
+    let q = _sb.from(mp + '_orders')
+      .select('*, profiles(id, name, avatar, role)')
+      .order('date', { ascending: false });
+    if (filters.dateFrom) q = q.gte('date', filters.dateFrom);
+    if (filters.dateTo)   q = q.lte('date', filters.dateTo);
+    if (filters.status)   q = q.eq('status', filters.status);
+    if (filters.advId)    q = q.eq('adv_id', filters.advId);
+    return q.then(({ data }) => (data || []).map(r => ({ ...r, marketplace: mp })));
+  });
+
+  const results = await Promise.all(queries);
+  const all = results.flat();
+
+  if (filters.marketplace) return all.filter(r => r.marketplace === filters.marketplace);
+
+  return all.sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
 // ── Products ──────────────────────────────────────────────────────────────────
@@ -125,12 +147,14 @@ function calcMonthlyRevenue(transactions) {
 }
 
 function calcStats(transactions) {
-  const valid = transactions.filter(t => t.status !== 'dibatalkan');
+  const cancelKeywords = ['batal', 'cancel', 'cancelled', 'canceled'];
+  const isCancelled = t => cancelKeywords.some(k => String(t.status || '').toLowerCase().includes(k));
+  const valid = transactions.filter(t => !isCancelled(t));
   return {
-    totalOmset:  valid.reduce((s, t) => s + t.qty * t.price, 0),
+    totalOmset:  valid.reduce((s, t) => s + (t.total || 0), 0),
     totalOrders: valid.length,
-    totalQty:    valid.reduce((s, t) => s + t.qty, 0),
-    cancelled:   transactions.filter(t => t.status === 'dibatalkan').length,
+    totalQty:    valid.reduce((s, t) => s + (t.qty || 0), 0),
+    cancelled:   transactions.filter(t => isCancelled(t)).length,
   };
 }
 
