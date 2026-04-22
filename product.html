@@ -27,9 +27,9 @@
 <script src="js/app.js"></script>
 <script src="js/upload.js"></script>
 <script>
-let _user, _profiles = [], _products = [], _skuSales = {}, _catChart;
-let _search = '', _catFilter = '';
-const COLORS = ['#4361EE','#EE4D2D','#06C270','#FFB703','#7B2FBE'];
+let _user, _profiles = [], _skuData = [], _skuChart;
+let _search = '', _mpFilter = '';
+const CANCEL_WORDS = ['batal','cancel','cancelled','canceled'];
 
 (async () => {
   _user = await requireAuth();
@@ -46,89 +46,106 @@ async function refreshPage() {
   try {
     const { from, to } = window._dateFilter;
     const isSPV = _user.role === 'spv';
+    const filters = { dateFrom: from, dateTo: to };
+    if (!isSPV) filters.advId = _user.id;
 
-    [_products] = await Promise.all([
-      dbGetProducts(isSPV ? {} : { advId: _user.id }),
-    ]);
+    const orders = await dbGetAllMarketplaceOrders(filters);
 
-    // Sales in period
-    const trxFilters = { dateFrom: from, dateTo: to };
-    if (!isSPV) trxFilters.advId = _user.id;
-    const trx = await dbGetTransactions(trxFilters);
-    _skuSales = {};
-    trx.filter(t=>t.status!=='dibatalkan').forEach(t => {
-      _skuSales[t.sku] = (_skuSales[t.sku]||0) + t.qty;
+    // Exclude cancelled
+    const valid = orders.filter(t => !CANCEL_WORDS.some(k => String(t.status||'').toLowerCase().includes(k)));
+
+    // Group by SKU
+    const skuMap = {};
+    valid.forEach(t => {
+      const sku = t.sku || '-';
+      if (!skuMap[sku]) skuMap[sku] = {
+        sku, product: t.product || '-',
+        shopee: 0, tiktok: 0, lazada: 0,
+        total_qty: 0, total_omset: 0,
+      };
+      skuMap[sku][t.marketplace] = (skuMap[sku][t.marketplace] || 0) + (t.qty || 0);
+      skuMap[sku].total_qty   += (t.qty || 0);
+      skuMap[sku].total_omset += (t.total || 0);
     });
 
-    const cats = {};
-    _products.forEach(p => { cats[p.category||'Lainnya'] = (cats[p.category||'Lainnya']||0)+1; });
-    const totalStock = _products.reduce((s,p)=>s+p.stock,0);
-    const totalSold  = Object.values(_skuSales).reduce((s,v)=>s+v,0);
+    _skuData = Object.values(skuMap).sort((a, b) => b.total_qty - a.total_qty);
+
+    const totalSKU   = _skuData.length;
+    const totalQty   = _skuData.reduce((s, d) => s + d.total_qty, 0);
+    const totalOmset = _skuData.reduce((s, d) => s + d.total_omset, 0);
+    const topSKU     = _skuData[0]?.product || '-';
+
+    // Top 5 SKU untuk chart
+    const top5 = _skuData.slice(0, 5);
 
     document.getElementById('pageContent').innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:12px">
-        <div><h2 style="font-weight:800">Product</h2><div style="color:var(--text-3);font-size:.85rem">${_products.length} produk aktif</div></div>
+        <div><h2 style="font-weight:800">Penjualan per Produk</h2>
+        <div style="color:var(--text-3);font-size:.85rem">Data dari semua marketplace · exclude dibatalkan</div></div>
       </div>
+
       <div class="stat-grid" style="margin-bottom:18px">
-        <div class="stat-card primary"><div class="stat-label">Total Produk</div><div class="stat-value">${_products.length}</div><div class="stat-sub">SKU aktif</div><div class="stat-icon">📦</div></div>
-        <div class="stat-card"><div class="stat-label">Total Stok</div><div class="stat-value">${totalStock.toLocaleString('id-ID')}</div><div class="stat-sub">Unit tersedia</div><div class="stat-icon">🏷️</div></div>
-        <div class="stat-card"><div class="stat-label">Terjual Periode Ini</div><div class="stat-value">${totalSold.toLocaleString('id-ID')}</div><div class="stat-sub">Unit terjual</div><div class="stat-icon">📈</div></div>
-        <div class="stat-card"><div class="stat-label">Kategori</div><div class="stat-value">${Object.keys(cats).length}</div><div class="stat-sub">Jenis kategori</div><div class="stat-icon">📂</div></div>
+        <div class="stat-card primary"><div class="stat-label">Total SKU Terjual</div><div class="stat-value">${totalSKU}</div><div class="stat-sub">Produk berbeda</div><div class="stat-icon">📦</div></div>
+        <div class="stat-card"><div class="stat-label">Total Qty Terjual</div><div class="stat-value">${totalQty.toLocaleString('id-ID')}</div><div class="stat-sub">Unit</div><div class="stat-icon">📈</div></div>
+        <div class="stat-card"><div class="stat-label">Total Omset</div><div class="stat-value">${fmt(totalOmset)}</div><div class="stat-sub">Semua marketplace</div><div class="stat-icon">💰</div></div>
+        <div class="stat-card"><div class="stat-label">Produk Terlaris</div><div class="stat-value" style="font-size:1rem;line-height:1.3">${topSKU}</div><div class="stat-sub">Qty tertinggi</div><div class="stat-icon">🏆</div></div>
       </div>
-      <div class="two-col" style="margin-bottom:18px">
-        <div class="card">
-          <div class="card-header"><div class="card-header-left"><h3>Distribusi Kategori</h3></div></div>
-          <div class="chart-container" style="height:200px"><canvas id="catChart"></canvas></div>
-        </div>
-        <div class="card">
-          <div class="card-header"><div class="card-header-left"><h3>Stok per Kategori</h3></div></div>
-          <div id="stockBars"></div>
-        </div>
+
+      <div class="card" style="margin-bottom:18px">
+        <div class="card-header"><div class="card-header-left"><h3>Top 5 SKU Terjual</h3><div class="card-sub">Berdasarkan total qty</div></div></div>
+        <div class="chart-container" style="height:220px"><canvas id="skuChart"></canvas></div>
       </div>
+
       <div class="card">
         <div class="card-header">
-          <div class="card-header-left"><h3>Daftar Produk</h3></div>
+          <div class="card-header-left"><h3>Detail per SKU</h3></div>
           <div class="controls" style="margin:0">
             <input type="text" class="ctrl-input" placeholder="🔍 Cari SKU / nama..." oninput="_search=this.value;renderTable()" style="min-width:160px">
-            <select class="ctrl-select" onchange="_catFilter=this.value;renderTable()">
-              <option value="">Semua Kategori</option>
-              ${[...new Set(_products.map(p=>p.category||'Lainnya'))].map(c=>`<option>${c}</option>`).join('')}
+            <select class="ctrl-select" onchange="_mpFilter=this.value;renderTable()">
+              <option value="">Semua Marketplace</option>
+              <option value="shopee">Shopee</option>
+              <option value="tiktok">TikTok</option>
+              <option value="lazada">Lazada</option>
             </select>
           </div>
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Produk</th><th>SKU</th><th>Kategori</th>${isSPV?'<th>ADV</th>':''}<th>Harga</th><th>Stok</th><th>Terjual</th><th>Nilai Stok</th></tr></thead>
+            <thead><tr>
+              <th>#</th><th>Nama Produk</th><th>SKU</th>
+              <th style="color:#EE4D2D">Shopee</th>
+              <th style="color:#888">TikTok</th>
+              <th style="color:#0F146D">Lazada</th>
+              <th>Total Qty</th><th>Total Omset</th>
+            </tr></thead>
             <tbody id="productTable"></tbody>
           </table>
         </div>
       </div>
     `;
 
-    // Category chart
-    const catLabels = Object.keys(cats);
-    if (_catChart) _catChart.destroy();
-    _catChart = new Chart(document.getElementById('catChart'), {
-      type:'doughnut',
-      data:{ labels:catLabels, datasets:[{ data:catLabels.map(k=>cats[k]),
-        backgroundColor:COLORS, borderWidth:3, borderColor:isDark()?'#1E293B':'#fff', hoverOffset:6 }] },
-      options:{ responsive:true, maintainAspectRatio:false, cutout:'60%',
-        plugins:{ legend:{ position:'bottom', labels:{font:{size:11},color:chartTextColor()} } } }
+    // Chart top 5
+    const tc = chartTextColor(), gc = chartGridColor();
+    if (_skuChart) _skuChart.destroy();
+    _skuChart = new Chart(document.getElementById('skuChart'), {
+      type: 'bar',
+      data: {
+        labels: top5.map(d => d.product.length > 20 ? d.product.slice(0,20)+'…' : d.product),
+        datasets: [
+          { label:'Shopee', data: top5.map(d=>d.shopee), backgroundColor:'#EE4D2D', borderRadius:4 },
+          { label:'TikTok', data: top5.map(d=>d.tiktok), backgroundColor:'#888',    borderRadius:4 },
+          { label:'Lazada', data: top5.map(d=>d.lazada), backgroundColor:'#0F146D', borderRadius:4 },
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position:'top', labels:{font:{size:11},color:tc} } },
+        scales: {
+          x: { stacked:true, grid:{display:false}, ticks:{color:tc} },
+          y: { stacked:true, grid:{color:gc}, ticks:{color:tc} }
+        }
+      }
     });
-
-    // Stock bars
-    const stockByCat = {};
-    _products.forEach(p => { const c=p.category||'Lainnya'; stockByCat[c]=(stockByCat[c]||0)+p.stock; });
-    const maxS = Math.max(...Object.values(stockByCat),1);
-    document.getElementById('stockBars').innerHTML = Object.entries(stockByCat).map(([cat,stock],i) => `
-      <div style="margin-bottom:14px">
-        <div style="display:flex;justify-content:space-between;font-size:.82rem;margin-bottom:5px">
-          <span style="font-weight:600">${cat}</span>
-          <span style="color:var(--primary);font-weight:700">${stock.toLocaleString('id-ID')} unit</span>
-        </div>
-        <div class="progress"><div class="progress-fill" style="width:${(stock/maxS*100).toFixed(0)}%;background:${COLORS[i%COLORS.length]}"></div></div>
-      </div>
-    `).join('');
 
     renderTable();
   } catch(e) {
@@ -137,37 +154,30 @@ async function refreshPage() {
 }
 
 function renderTable() {
-  const isSPV = _user.role === 'spv';
-  let list = _products;
-  if (_search) list = list.filter(p => p.name.toLowerCase().includes(_search.toLowerCase()) || p.sku.toLowerCase().includes(_search.toLowerCase()));
-  if (_catFilter) list = list.filter(p => (p.category||'Lainnya') === _catFilter);
+  let list = _skuData;
+  if (_search) list = list.filter(d =>
+    d.product.toLowerCase().includes(_search.toLowerCase()) ||
+    d.sku.toLowerCase().includes(_search.toLowerCase())
+  );
+  if (_mpFilter) list = list.filter(d => d[_mpFilter] > 0);
 
   const body = document.getElementById('productTable');
   if (!list.length) {
-    body.innerHTML = `<tr><td colspan="${isSPV?8:7}" class="empty"><div class="icon">📭</div>Tidak ada produk</td></tr>`; return;
+    body.innerHTML = `<tr><td colspan="8" class="empty"><div class="icon">📭</div>Tidak ada data</td></tr>`; return;
   }
-  body.innerHTML = list.map(p => {
-    const advP = p.profiles || {};
-    const color = assignUserColor(_profiles, p.adv_id);
-    const sold = _skuSales[p.sku] || 0;
-    const sc = p.stock < 50 ? 'var(--danger)' : p.stock < 150 ? 'var(--warning)' : 'var(--success)';
-    return `<tr>
-      <td><div style="display:flex;align-items:center;gap:10px">
-        <div style="width:36px;height:36px;border-radius:10px;background:rgba(67,97,238,.1);display:flex;align-items:center;justify-content:center;font-size:1.1rem;flex-shrink:0">${p.img||'📦'}</div>
-        <span style="font-weight:600">${p.name}</span>
-      </div></td>
-      <td style="font-family:monospace;font-size:.76rem;color:var(--text-3)">${p.sku}</td>
-      <td><span class="badge badge-primary">${p.category||'Lainnya'}</span></td>
-      ${isSPV?`<td><div style="display:flex;align-items:center;gap:6px">
-        <div class="user-avatar sm" style="background:${color};font-size:.65rem">${advP.avatar||'?'}</div>
-        <span style="font-size:.82rem">${advP.name?.split(' ')[0]||'-'}</span>
-      </div></td>`:''}
-      <td style="font-weight:700">${fmtFull(p.price)}</td>
-      <td><span style="font-weight:700;color:${sc}">${p.stock}</span></td>
-      <td style="font-weight:700;color:var(--success)">${sold>0?sold+' unit':'<span style="color:var(--text-3)">-</span>'}</td>
-      <td style="font-weight:700;color:var(--primary)">${fmt(p.price*p.stock)}</td>
-    </tr>`;
-  }).join('');
+
+  body.innerHTML = list.map((d, i) => `
+    <tr>
+      <td style="color:var(--text-3);font-size:.8rem">${i+1}</td>
+      <td style="font-weight:600">${d.product}</td>
+      <td style="font-family:monospace;font-size:.75rem;color:var(--text-3)">${d.sku}</td>
+      <td style="font-weight:700;color:#EE4D2D">${d.shopee > 0 ? d.shopee+' unit' : '<span style="color:var(--text-3)">-</span>'}</td>
+      <td style="font-weight:700;color:#888">${d.tiktok > 0 ? d.tiktok+' unit' : '<span style="color:var(--text-3)">-</span>'}</td>
+      <td style="font-weight:700;color:#0F146D">${d.lazada > 0 ? d.lazada+' unit' : '<span style="color:var(--text-3)">-</span>'}</td>
+      <td style="font-weight:800">${d.total_qty.toLocaleString('id-ID')} unit</td>
+      <td style="font-weight:800;color:var(--primary)">${fmt(d.total_omset)}</td>
+    </tr>
+  `).join('');
 }
 </script>
 </body>
