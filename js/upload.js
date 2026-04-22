@@ -26,7 +26,7 @@ const MP_CONFIG = {
   tiktok: {
     label: 'TikTok Shop',
     detect: h => h.some(x => x.includes('order id') || x.includes('seller sku') || x.includes('order status')),
-    transposed: true,
+    transposed: false,
     map: {
       id:         h => _findCol(h, ['order id']),
       date:       h => _findCol(h, ['created time', 'paid time']),
@@ -288,7 +288,7 @@ function _handleUploadFile(file) {
       }
 
       const cfg = MP_CONFIG[mp];
-      const { headers, rows } = _readSheet(ws, isTransposed || cfg.transposed);
+      const { headers, rows } = _readSheet(ws, isTransposed);
       const mapping = {};
       for (const [field, fn] of Object.entries(cfg.map)) {
         mapping[field] = fn(headers);
