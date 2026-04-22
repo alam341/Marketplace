@@ -6,6 +6,7 @@
 <title>Product — MarketDash</title>
 <link rel="stylesheet" href="css/main.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -13,34 +14,49 @@
   <div id="sidebar-slot"></div>
   <div class="main-content">
     <div id="header-slot"></div>
-    <div class="page" id="pageContent"></div>
+    <div class="page">
+      <div id="dateFilterContainer"></div>
+      <div id="pageContent"></div>
+    </div>
   </div>
 </div>
 <script src="js/data.js"></script>
 <script src="js/auth.js"></script>
 <script src="js/app.js"></script>
+<script src="js/upload.js"></script>
 <script>
 const user = requireAuth();
-if (user) { renderLayout('product', user); renderProduct(user); }
+let catChart;
+let _search = '', _catFilter = '';
 
-function renderProduct(user) {
+if (user) {
+  renderLayout('product', user);
+  renderDateFilter('dateFilterContainer', 'refreshPage');
+  refreshPage();
+}
+
+function refreshPage() {
   const isSPV = user.role === 'spv';
   const products = isSPV ? PRODUCTS : PRODUCTS.filter(p => p.adv === user.id);
+  const filteredTrx = filterTrxByDate(TRANSACTIONS).filter(t => isSPV || t.adv === user.id);
 
-  // Category stats
+  // Aggregate qty sold per SKU in period
+  const skuSales = {};
+  filteredTrx.filter(t=>t.status!=='dibatalkan').forEach(t => {
+    skuSales[t.sku] = (skuSales[t.sku] || 0) + t.qty;
+  });
+
   const cats = {};
   products.forEach(p => { cats[p.category] = (cats[p.category]||0) + 1; });
   const totalStock = products.reduce((s,p) => s+p.stock, 0);
+  const totalSold  = filteredTrx.filter(t=>t.status!=='dibatalkan').reduce((s,t)=>s+t.qty, 0);
+  const colors = ['#4361EE','#EE4D2D','#06C270','#FFB703','#7B2FBE'];
 
   document.getElementById('pageContent').innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px">
-      <div>
-        <h2 style="font-weight:800">Produk</h2>
-        <div style="color:#8A94A6;font-size:.85rem">${products.length} produk aktif</div>
-      </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:12px">
+      <div><h2 style="font-weight:800">Product</h2><div style="color:var(--text-3);font-size:.85rem">${products.length} produk aktif</div></div>
     </div>
 
-    <!-- Stats -->
     <div class="stat-grid" style="margin-bottom:18px">
       <div class="stat-card primary">
         <div class="stat-label">Total Produk</div>
@@ -55,47 +71,38 @@ function renderProduct(user) {
         <div class="stat-icon">🏷️</div>
       </div>
       <div class="stat-card">
+        <div class="stat-label">Terjual Periode Ini</div>
+        <div class="stat-value">${totalSold.toLocaleString('id-ID')}</div>
+        <div class="stat-sub">Unit terjual</div>
+        <div class="stat-icon">📈</div>
+      </div>
+      <div class="stat-card">
         <div class="stat-label">Kategori</div>
         <div class="stat-value">${Object.keys(cats).length}</div>
         <div class="stat-sub">Jenis kategori</div>
         <div class="stat-icon">📂</div>
       </div>
-      <div class="stat-card">
-        <div class="stat-label">Rata-rata Harga</div>
-        <div class="stat-value">${fmt(products.reduce((s,p)=>s+p.price,0)/products.length)}</div>
-        <div class="stat-sub">Per produk</div>
-        <div class="stat-icon">💵</div>
-      </div>
     </div>
 
     <div class="two-col" style="margin-bottom:18px">
-      <!-- Category chart -->
       <div class="card">
-        <div class="card-header">
-          <div class="card-header-left"><h3>Distribusi Kategori</h3></div>
-        </div>
-        <div class="chart-container" style="height:200px">
-          <canvas id="catChart"></canvas>
-        </div>
+        <div class="card-header"><div class="card-header-left"><h3>Distribusi Kategori</h3></div></div>
+        <div class="chart-container" style="height:210px"><canvas id="catChart"></canvas></div>
       </div>
-      <!-- Stock status -->
       <div class="card">
-        <div class="card-header">
-          <div class="card-header-left"><h3>Stok per Kategori</h3></div>
-        </div>
+        <div class="card-header"><div class="card-header-left"><h3>Stok per Kategori</h3></div></div>
         <div id="stockBars"></div>
       </div>
     </div>
 
-    <!-- Product table -->
     <div class="card">
       <div class="card-header">
         <div class="card-header-left"><h3>Daftar Produk</h3></div>
         <div class="controls" style="margin:0">
-          <input type="text" class="ctrl-input" placeholder="🔍 Cari SKU / nama..." oninput="filterProducts(this.value)" style="min-width:180px">
-          <select class="ctrl-select" onchange="filterByCategory(this.value)" id="catFilter">
+          <input type="text" class="ctrl-input" placeholder="🔍 Cari SKU / nama..." oninput="_search=this.value;_renderProductTable()" style="min-width:170px">
+          <select class="ctrl-select" onchange="_catFilter=this.value;_renderProductTable()">
             <option value="">Semua Kategori</option>
-            ${[...new Set(products.map(p=>p.category))].map(c=>`<option value="${c}">${c}</option>`).join('')}
+            ${[...new Set(products.map(p=>p.category))].map(c=>`<option>${c}</option>`).join('')}
           </select>
         </div>
       </div>
@@ -104,89 +111,88 @@ function renderProduct(user) {
           <thead><tr>
             <th>Produk</th><th>SKU</th><th>Kategori</th>
             ${isSPV ? '<th>ADV</th>' : ''}
-            <th>Harga</th><th>Stok</th><th>Nilai Stok</th>
+            <th>Harga</th><th>Stok</th><th>Terjual (Periode)</th><th>Nilai Stok</th>
           </tr></thead>
-          <tbody id="productTable">
-            ${renderProductRows(products, isSPV)}
-          </tbody>
+          <tbody id="productTable"></tbody>
         </table>
       </div>
     </div>
   `;
 
-  // Category pie chart
-  const catLabels = Object.keys(cats);
-  const catVals   = catLabels.map(k => cats[k]);
-  const colors    = ['#4361EE','#EE4D2D','#06C270','#FFB703','#7B2FBE'];
+  window._products   = products;
+  window._skuSales   = skuSales;
+  window._isSPV      = isSPV;
+  window._catColors  = colors;
+  _renderProductTable();
 
-  new Chart(document.getElementById('catChart'), {
+  // Category chart
+  if (catChart) catChart.destroy();
+  const catLabels = Object.keys(cats);
+  catChart = new Chart(document.getElementById('catChart'), {
     type: 'doughnut',
     data: {
       labels: catLabels,
-      datasets: [{ data: catVals, backgroundColor: colors, borderWidth:3, borderColor:'#fff', hoverOffset:6 }]
+      datasets: [{ data: catLabels.map(k=>cats[k]),
+        backgroundColor: colors, borderWidth:3,
+        borderColor: isDark()?'#1E293B':'#fff', hoverOffset:6 }]
     },
-    options: { responsive:true, maintainAspectRatio:false, cutout:'60%',
-      plugins:{ legend:{ position:'bottom', labels:{ font:{size:11} } } } }
+    options: {
+      responsive:true, maintainAspectRatio:false, cutout:'60%',
+      plugins:{ legend:{ position:'bottom', labels:{font:{size:11},color:chartTextColor()} } }
+    }
   });
 
   // Stock bars
   const stockByCat = {};
   products.forEach(p => { stockByCat[p.category] = (stockByCat[p.category]||0) + p.stock; });
-  const maxStock = Math.max(...Object.values(stockByCat));
-  document.getElementById('stockBars').innerHTML = Object.entries(stockByCat).map(([cat, stock], i) => `
+  const maxS = Math.max(...Object.values(stockByCat), 1);
+  document.getElementById('stockBars').innerHTML = Object.entries(stockByCat).map(([cat,stock],i) => `
     <div style="margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;font-size:.82rem;margin-bottom:5px">
-        <span style="font-weight:600">${cat}</span>
-        <span style="color:#4361EE;font-weight:700">${stock.toLocaleString('id-ID')} unit</span>
+        <span style="font-weight:600;color:var(--text-1)">${cat}</span>
+        <span style="color:var(--primary);font-weight:700">${stock.toLocaleString('id-ID')} unit</span>
       </div>
-      <div class="progress">
-        <div class="progress-fill" style="width:${(stock/maxStock*100).toFixed(0)}%;background:${colors[i]}"></div>
-      </div>
+      <div class="progress"><div class="progress-fill" style="width:${(stock/maxS*100).toFixed(0)}%;background:${colors[i]}"></div></div>
     </div>
   `).join('');
-
-  window._allProducts = products;
-  window._isSPV = isSPV;
 }
 
-function renderProductRows(list, isSPV) {
-  if (!list.length) return `<tr><td colspan="${isSPV?7:6}" class="empty"><div class="icon">📭</div>Tidak ada produk</td></tr>`;
-  return list.map(p => {
-    const advUser = getUser(p.adv);
-    const stockColor = p.stock < 100 ? '#EF233C' : p.stock < 200 ? '#FFB703' : '#06C270';
-    return `
-      <tr>
-        <td>
-          <div style="display:flex;align-items:center;gap:10px">
-            <div style="width:36px;height:36px;border-radius:10px;background:#F0F3FF;display:flex;align-items:center;justify-content:center;font-size:1.2rem">${p.img}</div>
-            <span style="font-weight:600">${p.name}</span>
-          </div>
-        </td>
-        <td style="font-family:monospace;font-size:.78rem;color:#8A94A6">${p.sku}</td>
-        <td><span class="badge badge-primary">${p.category}</span></td>
-        ${isSPV ? `<td><div style="display:flex;align-items:center;gap:6px"><div class="user-avatar sm" style="background:#4361EE;font-size:.65rem">${advUser?.avatar||'?'}</div>${advUser?.name.split(' ')[0]||'-'}</div></td>` : ''}
-        <td style="font-weight:700">${fmtFull(p.price)}</td>
-        <td><span style="font-weight:700;color:${stockColor}">${p.stock}</span></td>
-        <td style="font-weight:700;color:#4361EE">${fmt(p.price * p.stock)}</td>
-      </tr>
-    `;
-  }).join('');
-}
-
-let _catFilter = '', _searchFilter = '';
-function filterProducts(q) {
-  _searchFilter = q.toLowerCase();
-  applyFilters();
-}
-function filterByCategory(cat) {
-  _catFilter = cat;
-  applyFilters();
-}
-function applyFilters() {
-  let list = window._allProducts || [];
+function _renderProductTable() {
+  let list = window._products || [];
+  if (_search) list = list.filter(p => p.name.toLowerCase().includes(_search.toLowerCase()) || p.sku.toLowerCase().includes(_search.toLowerCase()));
   if (_catFilter) list = list.filter(p => p.category === _catFilter);
-  if (_searchFilter) list = list.filter(p => p.name.toLowerCase().includes(_searchFilter) || p.sku.toLowerCase().includes(_searchFilter));
-  document.getElementById('productTable').innerHTML = renderProductRows(list, window._isSPV);
+  const isSPV = window._isSPV;
+  const colors = window._catColors || [];
+
+  const body = document.getElementById('productTable');
+  if (!list.length) {
+    body.innerHTML = `<tr><td colspan="${isSPV?8:7}" class="empty"><div class="icon">📭</div>Tidak ada produk</td></tr>`;
+    return;
+  }
+
+  body.innerHTML = list.map(p => {
+    const advUser = getUser(p.adv);
+    const sold = window._skuSales?.[p.sku] || 0;
+    const stockColor = p.stock < 100 ? 'var(--danger)' : p.stock < 200 ? 'var(--warning)' : 'var(--success)';
+    return `<tr>
+      <td>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:36px;height:36px;border-radius:10px;background:rgba(67,97,238,.1);display:flex;align-items:center;justify-content:center;font-size:1.1rem;flex-shrink:0">${p.img}</div>
+          <span style="font-weight:600">${p.name}</span>
+        </div>
+      </td>
+      <td style="font-family:monospace;font-size:.76rem;color:var(--text-3)">${p.sku}</td>
+      <td><span class="badge badge-primary">${p.category}</span></td>
+      ${isSPV ? `<td><div style="display:flex;align-items:center;gap:6px">
+        <div class="user-avatar sm" style="background:${ADV_COLORS[p.adv]||'#4361EE'};font-size:.65rem">${advUser?.avatar||'?'}</div>
+        <span style="font-size:.82rem">${advUser?.name.split(' ')[0]||'-'}</span>
+      </div></td>` : ''}
+      <td style="font-weight:700">${fmtFull(p.price)}</td>
+      <td><span style="font-weight:700;color:${stockColor}">${p.stock}</span></td>
+      <td><span style="font-weight:700;color:var(--success)">${sold > 0 ? sold + ' unit' : '<span style="color:var(--text-3)">-</span>'}</span></td>
+      <td style="font-weight:700;color:var(--primary)">${fmt(p.price*p.stock)}</td>
+    </tr>`;
+  }).join('');
 }
 </script>
 </body>
