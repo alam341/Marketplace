@@ -3,6 +3,7 @@ let _uploadStep = 1;
 let _uploadedWb = null;
 let _detectedMarketplace = null;
 let _parsedRows = [];
+let _storeName = '';
 
 // ── Marketplace Config ─────────────────────────────────────────────────────────
 const MP_CONFIG = {
@@ -156,6 +157,7 @@ function openUploadModal() {
   _uploadedWb = null;
   _detectedMarketplace = null;
   _parsedRows = [];
+  _storeName = '';
   _renderUploadModal();
   document.getElementById('uploadModalOverlay').classList.add('open');
 }
@@ -173,6 +175,13 @@ function _renderUploadModal() {
            <span style="font-size:1.2rem">✅</span>
            <div><div style="font-weight:700;font-size:.85rem">Terdeteksi: ${MP_CONFIG[_detectedMarketplace].label}</div>
            <div style="font-size:.75rem;color:var(--text-3)">${_parsedRows.length} baris data siap diimport</div></div>
+         </div>
+         <div style="margin-top:12px">
+           <label style="font-size:.82rem;font-weight:700;color:var(--text-2);display:block;margin-bottom:6px">Nama Toko *</label>
+           <input type="text" id="storeNameInput" placeholder="Contoh: Adsy Official, Toko Herbal 2..."
+             style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:.875rem;box-sizing:border-box"
+             value="${_storeName || ''}">
+           <div style="font-size:.72rem;color:var(--text-3);margin-top:4px">Untuk membedakan performa antar toko</div>
          </div>`
       : '';
 
@@ -306,14 +315,22 @@ function _handleUploadFile(file) {
 }
 
 function _goToStep1()  { _uploadStep = 1; _renderUploadModal(); }
-function _goToPreview() { _uploadStep = 2; _renderUploadModal(); }
+function _goToPreview() {
+  _storeName = document.getElementById('storeNameInput')?.value.trim() || '';
+  if (!_storeName) {
+    document.getElementById('storeNameInput').style.borderColor = 'var(--danger)';
+    document.getElementById('storeNameInput').focus();
+    return;
+  }
+  _uploadStep = 2; _renderUploadModal();
+}
 
 async function _applyData() {
   const btn = document.getElementById('btnApply');
   if (btn) { btn.textContent = 'Menyimpan...'; btn.disabled = true; }
 
   try {
-    await dbBulkInsertMarketplaceOrders(_detectedMarketplace, _parsedRows);
+    await dbBulkInsertMarketplaceOrders(_detectedMarketplace, _parsedRows, _storeName);
     closeUploadModal();
     showToast(`✅ ${_parsedRows.length} data ${MP_CONFIG[_detectedMarketplace].label} berhasil disimpan!`, 'success');
     if (typeof refreshPage === 'function') await refreshPage();

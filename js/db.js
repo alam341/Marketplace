@@ -66,7 +66,7 @@ async function dbUpdateTransactionStatus(id, status) {
   if (error) throw error;
 }
 
-async function dbBulkInsertMarketplaceOrders(marketplace, rows) {
+async function dbBulkInsertMarketplaceOrders(marketplace, rows, storeName = '') {
   const session = await sbGetSession();
   const table = marketplace + '_orders';
   const inserts = rows.map(r => ({
@@ -78,6 +78,7 @@ async function dbBulkInsertMarketplaceOrders(marketplace, rows) {
     unit_price: r.unit_price,
     total:      r.total,
     status:     r.status,
+    store_name: storeName,
     adv_id:     session.user.id,
   }));
   const { data, error } = await _sb.from(table).insert(inserts).select();
