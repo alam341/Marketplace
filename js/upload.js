@@ -148,7 +148,7 @@ function _parseRows(rows, mp, mapping) {
         marketplace: mp,
       };
     })
-    .filter(r => r.id && r.id.trim());
+    .filter(r => r.id && r.id.trim() && !r.id.includes(' '));
 }
 
 // ── Modal ──────────────────────────────────────────────────────────────────────
