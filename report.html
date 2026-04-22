@@ -88,7 +88,7 @@ async function refreshPage() {
   else if (_advFilter !== 'all') filters.advId = _advFilter;
 
   try {
-    const trx = await dbGetTransactions(filters);
+    const trx = await dbGetAllMarketplaceOrders(filters);
     const monthly = calcMonthlyRevenue(trx);
     const months  = Object.keys(monthly).sort();
 

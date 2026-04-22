@@ -45,8 +45,10 @@ async function refreshPage() {
   showLoading();
   try {
     const { from, to } = window._dateFilter;
-    const trx = await dbGetTransactions({ dateFrom: from, dateTo: to });
-    const myTrx = _user.role === 'spv' ? trx : trx.filter(t => t.adv_id === _user.id);
+    const filters = { dateFrom: from, dateTo: to };
+    if (_user.role !== 'spv') filters.advId = _user.id;
+    const trx = await dbGetAllMarketplaceOrders(filters);
+    const myTrx = trx;
 
     renderDashboard(myTrx);
   } catch(e) {
@@ -79,8 +81,8 @@ function renderDashboard(trx) {
     const teamMap = {};
     trx.filter(t=>t.status!=='dibatalkan').forEach(t => {
       if (!teamMap[t.adv_id]) teamMap[t.adv_id] = { omset:0, qty:0 };
-      teamMap[t.adv_id].omset += t.qty * t.price;
-      teamMap[t.adv_id].qty   += t.qty;
+      teamMap[t.adv_id].omset += t.total || 0;
+      teamMap[t.adv_id].qty   += t.qty || 0;
     });
     const team = _profiles.map((p,i) => ({
       ...p, _color: ADV_COLORS[i % ADV_COLORS.length],
@@ -199,7 +201,7 @@ function renderDashboard(trx) {
                 <td>${badgeMarketplace(t.marketplace)}</td>
                 <td style="color:var(--text-3);font-size:.82rem">${t.date}</td>
                 <td style="font-weight:700">${t.qty}</td>
-                <td style="font-weight:800;color:var(--primary)">${fmtFull(t.qty*t.price)}</td>
+                <td style="font-weight:800;color:var(--primary)">${fmtFull(t.total||0)}</td>
                 <td>${badgeStatus(t.status)}</td>
               </tr>`;
             }).join('')}
@@ -244,7 +246,7 @@ function renderDashboard(trx) {
     trx.filter(t=>t.status!=='dibatalkan').forEach(t => {
       if (!teamMap[t.adv_id]) teamMap[t.adv_id] = { shopee:0, lazada:0, tiktok:0 };
       if (teamMap[t.adv_id][t.marketplace] !== undefined)
-        teamMap[t.adv_id][t.marketplace] += t.qty * t.price;
+        teamMap[t.adv_id][t.marketplace] += t.total || 0;
     });
     const team = _profiles.map(p => ({ name:p.name.split(' ')[0], ...teamMap[p.id]||{shopee:0,lazada:0,tiktok:0} }));
     _teamChart = new Chart(document.getElementById('teamChart'), {
