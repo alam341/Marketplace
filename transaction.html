@@ -103,9 +103,10 @@ async function refreshPage() {
   const { from, to } = window._dateFilter;
   const filters = { dateFrom: from, dateTo: to };
   if (_user.role !== 'spv') filters.advId = _user.id;
+  if (_tMp) filters.marketplace = _tMp;
 
   try {
-    _baseTrx = await dbGetTransactions(filters);
+    _baseTrx = await dbGetAllMarketplaceOrders(filters);
     const isSPV = _user.role === 'spv';
     const valid = _baseTrx.filter(t=>t.status!=='dibatalkan');
     const stats  = calcStats(_baseTrx);
@@ -178,7 +179,7 @@ function renderTable() {
       <td>${badgeMarketplace(t.marketplace)}</td>
       <td style="color:var(--text-3);font-size:.82rem;white-space:nowrap">${t.date}</td>
       <td style="font-weight:700">${t.qty}</td>
-      <td style="font-weight:800;color:var(--primary)">${fmtFull(t.qty*t.price)}</td>
+      <td style="font-weight:800;color:var(--primary)">${fmtFull(t.total||0)}</td>
       <td>${badgeStatus(t.status)}</td>
     </tr>`;
   }).join('');
