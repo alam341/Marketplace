@@ -296,16 +296,7 @@ function _handleUploadFile(file) {
 
       _detectedMarketplace = mp;
       _parsedRows = _parseRows(rows, mp, mapping);
-
-      document.getElementById('uploadFileInfo').innerHTML = `
-        <div style="background:rgba(6,194,112,.1);border-radius:8px;padding:10px 14px;margin-top:12px;display:flex;gap:10px;align-items:center">
-          <span style="font-size:1.2rem">✅</span>
-          <div>
-            <div style="font-weight:700;font-size:.85rem">${file.name} — ${cfg.label}</div>
-            <div style="font-size:.75rem;color:var(--text-3)">${_parsedRows.length} baris data siap diimport</div>
-          </div>
-        </div>`;
-      document.getElementById('btnNextStep')?.removeAttribute('disabled');
+      _renderUploadModal();
     } catch(err) {
       document.getElementById('uploadFileInfo').innerHTML =
         `<span style="color:var(--danger)">❌ Gagal membaca file: ${err.message}</span>`;
