@@ -111,7 +111,7 @@ async function refreshPage() {
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr>
+            <thead><tr id="productTableHead">
               <th>#</th><th>Nama Produk</th><th>SKU</th>
               <th style="color:#EE4D2D">Shopee</th>
               <th style="color:#888">TikTok</th>
@@ -161,23 +161,39 @@ function renderTable() {
   );
   if (_mpFilter) list = list.filter(d => d[_mpFilter] > 0);
 
+  const mp = _mpFilter;
+  const showShopee = !mp || mp === 'shopee';
+  const showTiktok = !mp || mp === 'tiktok';
+  const showLazada = !mp || mp === 'lazada';
+
+  // Update header
+  document.getElementById('productTableHead').innerHTML = `
+    <th>#</th><th>Nama Produk</th><th>SKU</th>
+    ${showShopee ? '<th style="color:#EE4D2D">Shopee</th>' : ''}
+    ${showTiktok ? '<th style="color:#888">TikTok</th>' : ''}
+    ${showLazada ? '<th style="color:#0F146D">Lazada</th>' : ''}
+    <th>Total Qty</th><th>Total Omset</th>
+  `;
+
   const body = document.getElementById('productTable');
   if (!list.length) {
     body.innerHTML = `<tr><td colspan="8" class="empty"><div class="icon">📭</div>Tidak ada data</td></tr>`; return;
   }
 
-  body.innerHTML = list.map((d, i) => `
-    <tr>
+  const dash = `<span style="color:var(--text-3)">-</span>`;
+  body.innerHTML = list.map((d, i) => {
+    const qty = mp ? d[mp] : d.total_qty;
+    return `<tr>
       <td style="color:var(--text-3);font-size:.8rem">${i+1}</td>
       <td style="font-weight:600">${d.product}</td>
       <td style="font-family:monospace;font-size:.75rem;color:var(--text-3)">${d.sku}</td>
-      <td style="font-weight:700;color:#EE4D2D">${d.shopee > 0 ? d.shopee+' unit' : '<span style="color:var(--text-3)">-</span>'}</td>
-      <td style="font-weight:700;color:#888">${d.tiktok > 0 ? d.tiktok+' unit' : '<span style="color:var(--text-3)">-</span>'}</td>
-      <td style="font-weight:700;color:#0F146D">${d.lazada > 0 ? d.lazada+' unit' : '<span style="color:var(--text-3)">-</span>'}</td>
-      <td style="font-weight:800">${d.total_qty.toLocaleString('id-ID')} unit</td>
-      <td style="font-weight:800;color:var(--primary)">${fmt(d.total_omset)}</td>
-    </tr>
-  `).join('');
+      ${showShopee ? `<td style="font-weight:700;color:#EE4D2D">${d.shopee > 0 ? d.shopee+' unit' : dash}</td>` : ''}
+      ${showTiktok ? `<td style="font-weight:700;color:#888">${d.tiktok > 0 ? d.tiktok+' unit' : dash}</td>` : ''}
+      ${showLazada ? `<td style="font-weight:700;color:#0F146D">${d.lazada > 0 ? d.lazada+' unit' : dash}</td>` : ''}
+      <td style="font-weight:800">${qty.toLocaleString('id-ID')} unit</td>
+      <td style="font-weight:800;color:var(--primary)">${fmtFull(d.total_omset)}</td>
+    </tr>`;
+  }).join('');
 }
 </script>
 </body>
