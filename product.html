@@ -41,6 +41,14 @@ const CANCEL_WORDS = ['batal','cancel','cancelled','canceled'];
   await refreshPage();
 })();
 
+function setMpFilter(mp) {
+  _mpFilter = mp;
+  document.querySelectorAll('.mp-filter-btn').forEach(b => {
+    b.className = 'btn btn-sm ' + (b.dataset.mp === mp ? 'btn-primary' : 'btn-outline') + ' mp-filter-btn';
+  });
+  renderAll();
+}
+
 async function refreshPage() {
   showLoading();
   try {
@@ -50,63 +58,47 @@ async function refreshPage() {
     if (!isSPV) filters.advId = _user.id;
 
     const orders = await dbGetAllMarketplaceOrders(filters);
-
-    // Exclude cancelled
     const valid = orders.filter(t => !CANCEL_WORDS.some(k => String(t.status||'').toLowerCase().includes(k)));
 
-    // Group by SKU
     const skuMap = {};
     valid.forEach(t => {
       const sku = t.sku || '-';
-      if (!skuMap[sku]) skuMap[sku] = {
-        sku, product: t.product || '-',
-        shopee: 0, tiktok: 0, lazada: 0,
-        total_qty: 0, total_omset: 0,
-      };
-      skuMap[sku][t.marketplace] = (skuMap[sku][t.marketplace] || 0) + (t.qty || 0);
-      skuMap[sku].total_qty   += (t.qty || 0);
-      skuMap[sku].total_omset += (t.total || 0);
+      if (!skuMap[sku]) skuMap[sku] = { sku, product: t.product || '-', shopee:0, tiktok:0, lazada:0, total_qty:0, total_omset:0 };
+      skuMap[sku][t.marketplace] = (skuMap[sku][t.marketplace]||0) + (t.qty||0);
+      skuMap[sku].total_qty   += (t.qty||0);
+      skuMap[sku].total_omset += (t.total||0);
     });
 
-    _skuData = Object.values(skuMap).sort((a, b) => b.total_qty - a.total_qty);
-
-    const totalSKU   = _skuData.length;
-    const totalQty   = _skuData.reduce((s, d) => s + d.total_qty, 0);
-    const totalOmset = _skuData.reduce((s, d) => s + d.total_omset, 0);
-    const topSKU     = _skuData[0]?.product || '-';
-
-    // Top 5 SKU untuk chart
-    const top5 = _skuData.slice(0, 5);
+    _skuData = Object.values(skuMap).sort((a,b) => b.total_qty - a.total_qty);
 
     document.getElementById('pageContent').innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:12px">
-        <div><h2 style="font-weight:800">Penjualan per Produk</h2>
-        <div style="color:var(--text-3);font-size:.85rem">Data dari semua marketplace · exclude dibatalkan</div></div>
+      <div style="margin-bottom:14px">
+        <h2 style="font-weight:800;margin-bottom:4px">Penjualan per Produk</h2>
+        <div style="color:var(--text-3);font-size:.85rem">Exclude dibatalkan</div>
       </div>
 
-      <div class="stat-grid" style="margin-bottom:18px">
-        <div class="stat-card primary"><div class="stat-label">Total SKU Terjual</div><div class="stat-value">${totalSKU}</div><div class="stat-sub">Produk berbeda</div><div class="stat-icon">📦</div></div>
-        <div class="stat-card"><div class="stat-label">Total Qty Terjual</div><div class="stat-value">${totalQty.toLocaleString('id-ID')}</div><div class="stat-sub">Unit</div><div class="stat-icon">📈</div></div>
-        <div class="stat-card"><div class="stat-label">Total Omset</div><div class="stat-value">${fmt(totalOmset)}</div><div class="stat-sub">Semua marketplace</div><div class="stat-icon">💰</div></div>
-        <div class="stat-card"><div class="stat-label">Produk Terlaris</div><div class="stat-value" style="font-size:1rem;line-height:1.3">${topSKU}</div><div class="stat-sub">Qty tertinggi</div><div class="stat-icon">🏆</div></div>
+      <div class="card" style="margin-bottom:18px;padding:14px 18px">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span style="font-size:.82rem;font-weight:700;color:var(--text-3)">Platform:</span>
+          <button class="btn btn-primary btn-sm mp-filter-btn" data-mp="" onclick="setMpFilter('')">Semua</button>
+          <button class="btn btn-outline btn-sm mp-filter-btn" data-mp="shopee" onclick="setMpFilter('shopee')" style="color:#EE4D2D;border-color:#EE4D2D">Shopee</button>
+          <button class="btn btn-outline btn-sm mp-filter-btn" data-mp="tiktok" onclick="setMpFilter('tiktok')" style="color:#888;border-color:#888">TikTok</button>
+          <button class="btn btn-outline btn-sm mp-filter-btn" data-mp="lazada" onclick="setMpFilter('lazada')" style="color:#0F146D;border-color:#0F146D">Lazada</button>
+        </div>
       </div>
+
+      <div class="stat-grid" id="statCards" style="margin-bottom:18px"></div>
 
       <div class="card" style="margin-bottom:18px">
-        <div class="card-header"><div class="card-header-left"><h3>Top 5 SKU Terjual</h3><div class="card-sub">Berdasarkan total qty</div></div></div>
+        <div class="card-header"><div class="card-header-left"><h3>Top 5 SKU Terjual</h3><div class="card-sub" id="chartSub">Semua marketplace</div></div></div>
         <div class="chart-container" style="height:220px"><canvas id="skuChart"></canvas></div>
       </div>
 
       <div class="card">
         <div class="card-header">
-          <div class="card-header-left"><h3>Detail per SKU</h3></div>
+          <div class="card-header-left"><h3 id="tableTitle">Detail per SKU</h3></div>
           <div class="controls" style="margin:0">
             <input type="text" class="ctrl-input" placeholder="🔍 Cari SKU / nama..." oninput="_search=this.value;renderTable()" style="min-width:160px">
-            <select class="ctrl-select" onchange="_mpFilter=this.value;renderTable()">
-              <option value="">Semua Marketplace</option>
-              <option value="shopee">Shopee</option>
-              <option value="tiktok">TikTok</option>
-              <option value="lazada">Lazada</option>
-            </select>
           </div>
         </div>
         <div class="table-wrap">
@@ -124,33 +116,56 @@ async function refreshPage() {
       </div>
     `;
 
-    // Chart top 5
-    const tc = chartTextColor(), gc = chartGridColor();
-    if (_skuChart) _skuChart.destroy();
-    _skuChart = new Chart(document.getElementById('skuChart'), {
-      type: 'bar',
-      data: {
-        labels: top5.map(d => d.product.length > 20 ? d.product.slice(0,20)+'…' : d.product),
-        datasets: [
-          { label:'Shopee', data: top5.map(d=>d.shopee), backgroundColor:'#EE4D2D', borderRadius:4 },
-          { label:'TikTok', data: top5.map(d=>d.tiktok), backgroundColor:'#888',    borderRadius:4 },
-          { label:'Lazada', data: top5.map(d=>d.lazada), backgroundColor:'#0F146D', borderRadius:4 },
-        ]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { position:'top', labels:{font:{size:11},color:tc} } },
-        scales: {
-          x: { stacked:true, grid:{display:false}, ticks:{color:tc} },
-          y: { stacked:true, grid:{color:gc}, ticks:{color:tc} }
-        }
-      }
-    });
-
-    renderTable();
+    renderAll();
   } catch(e) {
     showError('Gagal memuat data: ' + e.message);
   }
+}
+
+function renderAll() {
+  const mp = _mpFilter;
+  const mpLabel = { '':'Semua marketplace', shopee:'Shopee', tiktok:'TikTok Shop', lazada:'Lazada' }[mp];
+
+  // Filter data berdasarkan platform
+  const filtered = mp ? _skuData.filter(d => d[mp] > 0) : _skuData;
+
+  const totalSKU   = filtered.length;
+  const totalQty   = filtered.reduce((s,d) => s + (mp ? d[mp] : d.total_qty), 0);
+  const totalOmset = filtered.reduce((s,d) => s + d.total_omset, 0);
+  const topSKU     = filtered[0]?.product || '-';
+
+  document.getElementById('statCards').innerHTML = `
+    <div class="stat-card primary"><div class="stat-label">Total SKU Terjual</div><div class="stat-value">${totalSKU}</div><div class="stat-sub">Produk berbeda</div><div class="stat-icon">📦</div></div>
+    <div class="stat-card"><div class="stat-label">Total Qty Terjual</div><div class="stat-value">${totalQty.toLocaleString('id-ID')}</div><div class="stat-sub">Unit</div><div class="stat-icon">📈</div></div>
+    <div class="stat-card"><div class="stat-label">Total Omset</div><div class="stat-value" style="font-size:1.1rem">${fmtFull(totalOmset)}</div><div class="stat-sub">${mpLabel}</div><div class="stat-icon">💰</div></div>
+    <div class="stat-card"><div class="stat-label">Produk Terlaris</div><div class="stat-value" style="font-size:.95rem;line-height:1.3">${topSKU}</div><div class="stat-sub">Qty tertinggi</div><div class="stat-icon">🏆</div></div>
+  `;
+
+  if (document.getElementById('chartSub')) document.getElementById('chartSub').textContent = mpLabel;
+  if (document.getElementById('tableTitle')) document.getElementById('tableTitle').textContent = `Detail per SKU — ${mpLabel}`;
+
+  // Chart top 5
+  const top5 = filtered.slice(0, 5);
+  const tc = chartTextColor(), gc = chartGridColor();
+  if (_skuChart) _skuChart.destroy();
+  if (document.getElementById('skuChart')) {
+    const datasets = mp
+      ? [{ label: mpLabel, data: top5.map(d=>d[mp]), backgroundColor: {shopee:'#EE4D2D',tiktok:'#888',lazada:'#0F146D'}[mp], borderRadius:4 }]
+      : [
+          { label:'Shopee', data:top5.map(d=>d.shopee), backgroundColor:'#EE4D2D', borderRadius:4 },
+          { label:'TikTok', data:top5.map(d=>d.tiktok), backgroundColor:'#888',    borderRadius:4 },
+          { label:'Lazada', data:top5.map(d=>d.lazada), backgroundColor:'#0F146D', borderRadius:4 },
+        ];
+    _skuChart = new Chart(document.getElementById('skuChart'), {
+      type:'bar',
+      data:{ labels:top5.map(d=>d.product.length>22?d.product.slice(0,22)+'…':d.product), datasets },
+      options:{ responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{ position:'top', labels:{font:{size:11},color:tc} } },
+        scales:{ x:{stacked:true,grid:{display:false},ticks:{color:tc}}, y:{stacked:true,grid:{color:gc},ticks:{color:tc}} } }
+    });
+  }
+
+  renderTable();
 }
 
 function renderTable() {
