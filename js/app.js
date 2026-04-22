@@ -29,8 +29,11 @@ function renderLayout(activePage, user) {
   document.getElementById('sidebar-slot').innerHTML = `
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-logo">
-        <div class="logo-icon">M</div>
-        <span class="logo-text">MarketDash</span>
+        <div class="logo-icon" style="font-size:.8rem">TM</div>
+        <div>
+          <div style="font-size:.85rem;font-weight:800;line-height:1.1;color:var(--text-1)">Team Marketplace</div>
+          <div style="font-size:.68rem;color:var(--text-3);font-weight:600">by Adsy</div>
+        </div>
       </div>
       <div class="sidebar-label">MENU</div>
       <nav class="sidebar-nav">
