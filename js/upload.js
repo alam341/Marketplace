@@ -69,6 +69,25 @@ function _detectMarketplace(headers) {
   return null;
 }
 
+// ── Normalize status ──────────────────────────────────────────────────────────
+function _normalizeStatus(raw) {
+  const s = String(raw || '').toLowerCase().trim();
+  if (!s) return 'diproses';
+
+  // Dibatalkan
+  if (s.includes('batal') || s.includes('cancel') || s.includes('failed') ||
+      s.includes('gagal') || s.includes('return') || s.includes('refund')) {
+    return 'dibatalkan';
+  }
+  // Selesai
+  if (s.includes('selesai') || s.includes('delivered') || s.includes('completed') ||
+      s.includes('sukses') || s.includes('success') || s.includes('finish')) {
+    return 'selesai';
+  }
+  // Diproses (default)
+  return 'diproses';
+}
+
 // ── Parse price string → integer ──────────────────────────────────────────────
 function _parsePrice(val) {
   if (!val && val !== 0) return 0;
@@ -135,7 +154,7 @@ function _parseRows(rows, mp, mapping) {
   return rows
     .map((row, i) => {
       const get = col => col ? (row[col] ?? '') : '';
-      const status = String(get(mapping.status) || '').trim() || 'selesai';
+      const status = _normalizeStatus(get(mapping.status));
       return {
         id:         String(get(mapping.id) || ('IMP-' + mp + '-' + i)).trim(),
         date:       _parseDate(get(mapping.date)),
