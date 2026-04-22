@@ -106,7 +106,7 @@ function showError(msg, id = 'pageContent') {
 }
 
 // ── Date Filter ───────────────────────────────────────────────────────────────
-window._dateFilter = { from: '2024-01-01', to: '2024-12-31', preset: 'thisyear' };
+window._dateFilter = { from: firstOfYear(), to: fmtDate(0), preset: 'thisyear' };
 
 function renderDateFilter(containerId, onChangeFn) {
   const presets = [

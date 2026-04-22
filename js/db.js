@@ -132,14 +132,15 @@ async function dbUpsertProduct(product) {
 
 // ── Revenue Aggregation (dihitung dari transactions) ──────────────────────────
 function calcMonthlyRevenue(transactions) {
-  // Returns: { '2024-01': { shopee:0, lazada:0, tiktok:0, total:0 }, ... }
+  // Returns: { '2026-04': { shopee:0, lazada:0, tiktok:0, total:0 }, ... }
+  const cancelKeywords = ['batal', 'cancel', 'cancelled', 'canceled'];
   const result = {};
   transactions
-    .filter(t => t.status !== 'dibatalkan')
+    .filter(t => !cancelKeywords.some(k => String(t.status || '').toLowerCase().includes(k)))
     .forEach(t => {
       const month = String(t.date).substring(0, 7);
       if (!result[month]) result[month] = { shopee: 0, lazada: 0, tiktok: 0, total: 0 };
-      const val = (t.qty || 0) * (t.price || 0);
+      const val = t.total || 0;
       if (result[month][t.marketplace] !== undefined) result[month][t.marketplace] += val;
       result[month].total += val;
     });
