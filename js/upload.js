@@ -258,30 +258,31 @@ function _parseDate(raw) {
   return new Date().toISOString().slice(0,10);
 }
 
-function _applyData() {
+async function _applyData() {
   const m  = window._mapping;
   const ws = _uploadedWb.Sheets[_uploadedWb.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
   const parsed = _parseRows(rows, m);
 
-  // Store in sessionStorage
-  sessionStorage.setItem('importedTrx', JSON.stringify(parsed));
-  sessionStorage.setItem('dataImported', 'true');
+  if (!parsed.length) { showToast('Tidak ada data yang valid untuk diimport.', 'error'); return; }
 
-  // Override TRANSACTIONS
-  parsed.forEach((r, i) => {
-    r.id = 'IMP-' + String(i+1).padStart(4,'0');
-  });
-  window.TRANSACTIONS = parsed;
-  window.DATA_IMPORTED = true;
+  const btn = document.querySelector('#uploadModalBody .btn-success');
+  if (btn) { btn.textContent = 'Menyimpan...'; btn.disabled = true; }
 
-  closeUploadModal();
-
-  // Show success toast
-  showToast(`✅ ${parsed.length} transaksi berhasil diimport!`, 'success');
-
-  // Refresh current page if function exists
-  if (typeof refreshPage === 'function') refreshPage();
+  try {
+    // Coba simpan ke Supabase
+    await dbBulkInsertTransactions(parsed);
+    closeUploadModal();
+    showToast(`✅ ${parsed.length} transaksi berhasil disimpan ke database!`, 'success');
+    if (typeof refreshPage === 'function') await refreshPage();
+  } catch(e) {
+    // Fallback ke session jika Supabase belum dikonfigurasi
+    parsed.forEach((r, i) => { r.id = 'IMP-' + String(i+1).padStart(4,'0'); });
+    sessionStorage.setItem('importedTrx', JSON.stringify(parsed));
+    closeUploadModal();
+    showToast(`⚠️ ${parsed.length} data tersimpan sementara (Supabase belum dikonfigurasi).`, 'info');
+    if (typeof refreshPage === 'function') refreshPage();
+  }
 }
 
 function showToast(msg, type = 'success') {

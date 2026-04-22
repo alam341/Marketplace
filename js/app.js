@@ -5,7 +5,7 @@ const PAGES = [
   { id: 'transaction', label: 'Transaction', icon: '💳', file: 'transaction.html' },
 ];
 
-const ADV_COLORS = { adv1:'#4361EE', adv2:'#7B2FBE', adv3:'#06C270', adv4:'#FFB703', spv:'#EF233C' };
+const ADV_COLORS = ['#4361EE','#7B2FBE','#06C270','#FFB703','#EF233C'];
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
 function initTheme() {
@@ -13,10 +13,8 @@ function initTheme() {
   document.documentElement.setAttribute('data-theme', saved);
   return saved;
 }
-
 function toggleDarkMode() {
-  const cur = document.documentElement.getAttribute('data-theme');
-  const next = cur === 'dark' ? 'light' : 'dark';
+  const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', next);
   localStorage.setItem('theme', next);
   const btn = document.getElementById('themeToggle');
@@ -26,7 +24,7 @@ function toggleDarkMode() {
 // ── Layout ────────────────────────────────────────────────────────────────────
 function renderLayout(activePage, user) {
   const theme = initTheme();
-  const color = ADV_COLORS[user.id] || '#4361EE';
+  const color = user._color || '#4361EE';
 
   document.getElementById('sidebar-slot').innerHTML = `
     <aside class="sidebar" id="sidebar">
@@ -38,8 +36,7 @@ function renderLayout(activePage, user) {
       <nav class="sidebar-nav">
         ${PAGES.map(p => `
           <a href="${p.file}" class="nav-item ${activePage === p.id ? 'active' : ''}">
-            <span class="nav-icon">${p.icon}</span>
-            <span>${p.label}</span>
+            <span class="nav-icon">${p.icon}</span><span>${p.label}</span>
           </a>
         `).join('')}
       </nav>
@@ -49,7 +46,7 @@ function renderLayout(activePage, user) {
         </button>
         <div class="sidebar-bottom">
           <div class="user-card">
-            <div class="user-avatar" style="background:${color}">${user.avatar}</div>
+            <div class="user-avatar" style="background:${color}">${user.avatar || '?'}</div>
             <div class="user-info">
               <div class="user-name">${user.name}</div>
               <div class="user-role">${user.title}</div>
@@ -75,13 +72,13 @@ function renderLayout(activePage, user) {
           <input type="text" placeholder="Cari..." class="topbar-search">
         </div>
         <div class="divider-v"></div>
-        <button class="theme-toggle" id="themeToggle" onclick="toggleDarkMode()" title="Toggle dark mode">
+        <button class="theme-toggle" id="themeToggle" onclick="toggleDarkMode()">
           ${theme === 'dark' ? '☀️' : '🌙'}
         </button>
-        <button class="icon-btn notif-btn" title="Notifikasi">🔔<span class="notif-dot"></span></button>
+        <button class="icon-btn">🔔<span class="notif-dot"></span></button>
         <div class="divider-v"></div>
         <div class="topbar-user">
-          <div class="user-avatar sm" style="background:${color}">${user.avatar}</div>
+          <div class="user-avatar sm" style="background:${color}">${user.avatar || '?'}</div>
           <div>
             <div class="topbar-name">${user.name}</div>
             <div class="topbar-role">${user.title}</div>
@@ -92,67 +89,59 @@ function renderLayout(activePage, user) {
   `;
 }
 
-function openSidebar() {
-  document.getElementById('sidebar')?.classList.add('open');
-  document.getElementById('sidebarOverlay')?.classList.add('open');
+function openSidebar()  { document.getElementById('sidebar')?.classList.add('open'); document.getElementById('sidebarOverlay')?.classList.add('open'); }
+function closeSidebar() { document.getElementById('sidebar')?.classList.remove('open'); document.getElementById('sidebarOverlay')?.classList.remove('open'); }
+
+// ── Loading ───────────────────────────────────────────────────────────────────
+function showLoading(id = 'pageContent') {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = `<div class="page-loading"><div class="spinner"></div><div>Memuat data...</div></div>`;
 }
-function closeSidebar() {
-  document.getElementById('sidebar')?.classList.remove('open');
-  document.getElementById('sidebarOverlay')?.classList.remove('open');
+function showError(msg, id = 'pageContent') {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = `<div class="page-loading"><div style="font-size:2rem">⚠️</div><div style="color:var(--danger)">${msg}</div><button class="btn btn-outline btn-sm" onclick="location.reload()">Coba Lagi</button></div>`;
 }
 
 // ── Date Filter ───────────────────────────────────────────────────────────────
-// Default range: covers all mock data
-const DATA_MIN_DATE = '2024-01-01';
-const DATA_MAX_DATE = '2024-07-31';
+window._dateFilter = { from: '2024-01-01', to: '2024-12-31', preset: 'thisyear' };
 
-window._dateFilter = { from: DATA_MIN_DATE, to: DATA_MAX_DATE, preset: 'all' };
+function renderDateFilter(containerId, onChangeFn) {
+  const presets = [
+    { key: 'today',    label: 'Hari Ini',  from: fmtDate(0),    to: fmtDate(0) },
+    { key: 'week',     label: '7 Hari',    from: fmtDate(-6),   to: fmtDate(0) },
+    { key: 'month',    label: 'Bln Ini',   from: firstOfMonth(), to: fmtDate(0) },
+    { key: 'thisyear', label: 'Thn Ini',   from: firstOfYear(),  to: fmtDate(0) },
+    { key: 'all',      label: 'Semua',     from: '2020-01-01',  to: '2099-12-31' },
+  ];
 
-function renderDateFilter(containerId, onChangeCallback) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
-
-  container.innerHTML = `
+  document.getElementById(containerId).innerHTML = `
     <div class="date-filter-bar">
       <div style="font-size:.78rem;font-weight:700;color:var(--text-3);white-space:nowrap">📅 Periode:</div>
       <div class="date-presets">
-        <button class="date-preset ${window._dateFilter.preset === 'all'    ? 'active' : ''}" onclick="setPreset('all',    '${onChangeCallback}')">Semua</button>
-        <button class="date-preset ${window._dateFilter.preset === 'thismonth' ? 'active' : ''}" onclick="setPreset('thismonth','${onChangeCallback}')">Bln Ini</button>
-        <button class="date-preset ${window._dateFilter.preset === 'last3'   ? 'active' : ''}" onclick="setPreset('last3',   '${onChangeCallback}')">3 Bulan</button>
-        <button class="date-preset ${window._dateFilter.preset === 'firsthalf'? 'active' : ''}" onclick="setPreset('firsthalf','${onChangeCallback}')">H1 2024</button>
+        ${presets.map(p => `
+          <button class="date-preset ${window._dateFilter.preset===p.key?'active':''}"
+            onclick="setPreset('${p.key}','${p.from}','${p.to}','${onChangeFn}')">
+            ${p.label}
+          </button>
+        `).join('')}
       </div>
       <div class="date-range-wrap">
-        <input type="date" class="date-input" id="dateFrom" value="${window._dateFilter.from}"
-          min="${DATA_MIN_DATE}" max="${DATA_MAX_DATE}"
-          onchange="customDate('${onChangeCallback}')">
+        <input type="date" class="date-input" id="dateFrom" value="${window._dateFilter.from}" onchange="customDate('${onChangeFn}')">
         <span>—</span>
-        <input type="date" class="date-input" id="dateTo" value="${window._dateFilter.to}"
-          min="${DATA_MIN_DATE}" max="${DATA_MAX_DATE}"
-          onchange="customDate('${onChangeCallback}')">
+        <input type="date" class="date-input" id="dateTo"   value="${window._dateFilter.to}"   onchange="customDate('${onChangeFn}')">
       </div>
     </div>
   `;
 }
 
-function setPreset(preset, cb) {
-  const presets = {
-    all:       { from: '2024-01-01', to: '2024-07-31' },
-    thismonth: { from: '2024-07-01', to: '2024-07-31' },
-    last3:     { from: '2024-05-01', to: '2024-07-31' },
-    firsthalf: { from: '2024-01-01', to: '2024-06-30' },
-  };
-  const range = presets[preset];
-  if (!range) return;
-  window._dateFilter = { ...range, preset };
-  document.getElementById('dateFrom').value = range.from;
-  document.getElementById('dateTo').value   = range.to;
-
+function setPreset(key, from, to, cb) {
+  window._dateFilter = { from, to, preset: key };
+  document.getElementById('dateFrom').value = from;
+  document.getElementById('dateTo').value   = to;
   document.querySelectorAll('.date-preset').forEach(b => b.classList.remove('active'));
   event.target.classList.add('active');
-
   if (cb && window[cb]) window[cb]();
 }
-
 function customDate(cb) {
   const from = document.getElementById('dateFrom').value;
   const to   = document.getElementById('dateTo').value;
@@ -162,49 +151,53 @@ function customDate(cb) {
   if (cb && window[cb]) window[cb]();
 }
 
-// Filter months in data range
-function getActiveMonthIndices() {
-  const { from, to } = window._dateFilter;
-  const monthDates = [
-    '2024-01', '2024-02', '2024-03', '2024-04', '2024-05', '2024-06', '2024-07'
-  ];
-  return monthDates.reduce((arr, m, i) => {
-    const mFrom = m + '-01';
-    const mTo   = m + '-31';
-    if (mFrom <= to && mTo >= from) arr.push(i);
-    return arr;
-  }, []);
+function fmtDate(offsetDays = 0) {
+  const d = new Date(); d.setDate(d.getDate() + offsetDays);
+  return d.toISOString().slice(0,10);
 }
+function firstOfMonth() { const d = new Date(); d.setDate(1); return d.toISOString().slice(0,10); }
+function firstOfYear()  { return new Date().getFullYear() + '-01-01'; }
 
-// Filter transactions by current date range
-function filterTrxByDate(trxList) {
-  const { from, to } = window._dateFilter;
-  return trxList.filter(t => t.date >= from && t.date <= to);
-}
-
-// ── Shared Helpers ─────────────────────────────────────────────────────────────
+// ── Shared helpers ────────────────────────────────────────────────────────────
 function formatDate(d) {
   return d.toLocaleDateString('id-ID', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
 }
-
 function badgeMarketplace(mp) {
   const map   = { shopee:'badge-shopee', lazada:'badge-badge', tiktok:'badge-tiktok' };
   const label = { shopee:'Shopee',       lazada:'Lazada',      tiktok:'TikTok' };
   return `<span class="badge ${map[mp]||'badge-gray'}">${label[mp]||mp}</span>`;
 }
-
 function badgeStatus(s) {
   const map = { selesai:'badge-success', diproses:'badge-warning', dibatalkan:'badge-danger' };
   return `<span class="badge ${map[s]||'badge-gray'}">${s}</span>`;
 }
-
 function growthBadge(pct) {
-  const v = parseFloat(pct);
-  const pos = v >= 0;
+  const v = parseFloat(pct); const pos = v >= 0;
   return `<span class="growth ${pos?'pos':'neg'}">${pos?'▲':'▼'} ${Math.abs(v).toFixed(1)}%</span>`;
 }
-
-// Chart color helper (dark mode aware)
 function isDark() { return document.documentElement.getAttribute('data-theme') === 'dark'; }
-function chartGridColor()  { return isDark() ? '#334155' : '#F0F0F0'; }
-function chartTextColor()  { return isDark() ? '#94A3B8' : '#666'; }
+function chartGridColor() { return isDark() ? '#334155' : '#F0F0F0'; }
+function chartTextColor() { return isDark() ? '#94A3B8' : '#666'; }
+function fmt(n) {
+  if (n >= 1e9) return 'Rp ' + (n/1e9).toFixed(1) + ' M';
+  if (n >= 1e6) return 'Rp ' + (n/1e6).toFixed(1) + ' Jt';
+  return 'Rp ' + Math.round(n).toLocaleString('id-ID');
+}
+function fmtFull(n) { return 'Rp ' + Math.round(n).toLocaleString('id-ID'); }
+
+function showToast(msg, type = 'success') {
+  const colors = { success:'#06C270', error:'#EF233C', info:'#4361EE' };
+  const t = document.createElement('div');
+  t.style.cssText = `position:fixed;bottom:24px;right:24px;z-index:9999;background:${colors[type]||colors.info};
+    color:white;padding:12px 20px;border-radius:12px;font-weight:700;font-size:.875rem;
+    box-shadow:0 4px 20px rgba(0,0,0,.25);transition:opacity .3s;`;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => { t.style.opacity='0'; setTimeout(()=>t.remove(),300); }, 3000);
+}
+
+// Assign color to user based on profile list index
+function assignUserColor(profiles, userId) {
+  const idx = profiles.findIndex(p => p.id === userId);
+  return ADV_COLORS[idx >= 0 ? idx % ADV_COLORS.length : 0];
+}
