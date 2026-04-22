@@ -6,6 +6,7 @@
 <title>Dashboard — MarketDash</title>
 <link rel="stylesheet" href="css/main.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -20,141 +21,150 @@
     </div>
   </div>
 </div>
-
-<script src="js/data.js"></script>
+<script src="js/config.js"></script>
+<script src="js/db.js"></script>
 <script src="js/auth.js"></script>
 <script src="js/app.js"></script>
 <script src="js/upload.js"></script>
 <script>
-const user = requireAuth();
-let revenueChart, donutChart, teamChart;
+let _user, _profiles = [], _revChart, _donutChart, _teamChart;
 
-if (user) {
-  renderLayout('dashboard', user);
+(async () => {
+  _user = await requireAuth();
+  if (!_user) return;
+
+  _profiles = await dbGetAllProfiles().catch(() => []);
+  _user._color = _user.role === 'spv' ? '#EF233C' : assignUserColor(_profiles, _user.id);
+
+  renderLayout('dashboard', _user);
   renderDateFilter('dateFilterContainer', 'refreshPage');
-  refreshPage();
+  await refreshPage();
+})();
+
+async function refreshPage() {
+  showLoading();
+  try {
+    const { from, to } = window._dateFilter;
+    const trx = await dbGetTransactions({ dateFrom: from, dateTo: to });
+    const myTrx = _user.role === 'spv' ? trx : trx.filter(t => t.adv_id === _user.id);
+
+    renderDashboard(myTrx);
+  } catch(e) {
+    showError('Gagal memuat data: ' + e.message);
+  }
 }
 
-function refreshPage() {
-  renderDashboard(user);
-}
+function renderDashboard(trx) {
+  const isSPV = _user.role === 'spv';
+  const stats  = calcStats(trx);
+  const monthly = calcMonthlyRevenue(trx);
 
-function renderDashboard(user) {
-  const isSPV = user.role === 'spv';
-  const activeIdx = getActiveMonthIndices();
+  const months  = Object.keys(monthly).sort();
+  const labels  = months.map(m => {
+    const [y,mo] = m.split('-');
+    return ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'][parseInt(mo)-1] + ' ' + y.slice(2);
+  });
+  const totals  = months.map(m => monthly[m].total);
+  const shopeeD = months.map(m => monthly[m].shopee);
+  const lazadaD = months.map(m => monthly[m].lazada);
+  const tiktokD = months.map(m => monthly[m].tiktok);
 
-  // Revenue calculation from filtered months
-  function advRevenue(advId) {
-    const d = MONTHLY_REVENUE[advId];
-    return activeIdx.reduce((s, i) => s + (d.shopee[i] + d.lazada[i] + d.tiktok[i]) * 1e6, 0);
+  const totalShopee = shopeeD.reduce((s,v)=>s+v,0);
+  const totalLazada = lazadaD.reduce((s,v)=>s+v,0);
+  const totalTiktok = tiktokD.reduce((s,v)=>s+v,0);
+
+  // Team leaderboard (SPV)
+  let teamSection = '';
+  if (isSPV && _profiles.length) {
+    const teamMap = {};
+    trx.filter(t=>t.status!=='dibatalkan').forEach(t => {
+      if (!teamMap[t.adv_id]) teamMap[t.adv_id] = { omset:0, qty:0 };
+      teamMap[t.adv_id].omset += t.qty * t.price;
+      teamMap[t.adv_id].qty   += t.qty;
+    });
+    const team = _profiles.map((p,i) => ({
+      ...p, _color: ADV_COLORS[i % ADV_COLORS.length],
+      omset: teamMap[p.id]?.omset || 0,
+      qty:   teamMap[p.id]?.qty   || 0,
+    })).sort((a,b) => b.omset - a.omset);
+    const maxOmset = team[0]?.omset || 1;
+    const ranks = ['gold','silver','bronze',''];
+    teamSection = `
+      <div class="two-col">
+        <div class="card">
+          <div class="card-header"><div class="card-header-left"><h3>Leaderboard Tim</h3><div class="card-sub">Revenue periode ini per ADV</div></div></div>
+          ${team.map((m,i) => `
+            <div class="team-item">
+              <div class="team-rank ${ranks[i]||''}">${i+1}</div>
+              <div class="user-avatar lg" style="background:${m._color}">${m.avatar||'?'}</div>
+              <div class="team-info">
+                <div class="team-name">${m.name}</div>
+                <div class="progress" style="margin-top:6px">
+                  <div class="progress-fill" style="width:${(m.omset/maxOmset*100).toFixed(0)}%"></div>
+                </div>
+              </div>
+              <div class="team-value">${fmt(m.omset)}</div>
+            </div>
+          `).join('')}
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-header-left"><h3>Perbandingan Tim per Marketplace</h3></div></div>
+          <div class="chart-container" style="height:240px"><canvas id="teamChart"></canvas></div>
+        </div>
+      </div>
+    `;
   }
-  function advRevenuePrev(advId) {
-    const d = MONTHLY_REVENUE[advId];
-    const prev = activeIdx.map(i => Math.max(0, i-1)).filter((v,i,a) => a.indexOf(v)===i && !activeIdx.includes(v));
-    if (!prev.length) {
-      const shifted = activeIdx.map(i => Math.max(0, i-1));
-      return shifted.reduce((s, i) => s + (d.shopee[i] + d.lazada[i] + d.tiktok[i]) * 1e6, 0);
-    }
-    return prev.reduce((s, i) => s + (d.shopee[i] + d.lazada[i] + d.tiktok[i]) * 1e6, 0);
-  }
 
-  let totalRev, totalRevPrev;
-  if (isSPV) {
-    totalRev     = ['adv1','adv2','adv3','adv4'].reduce((s,id) => s + advRevenue(id), 0);
-    totalRevPrev = ['adv1','adv2','adv3','adv4'].reduce((s,id) => s + advRevenuePrev(id), 0);
-  } else {
-    totalRev     = advRevenue(user.id);
-    totalRevPrev = advRevenuePrev(user.id);
-  }
-  const revGrowth = totalRevPrev ? ((totalRev - totalRevPrev) / totalRevPrev * 100).toFixed(1) : '0.0';
-
-  const filteredTrx = filterTrxByDate(TRANSACTIONS).filter(t => isSPV || t.adv === user.id);
-  const orders = filteredTrx.filter(t => t.status !== 'dibatalkan').length;
-  const totalQty = filteredTrx.reduce((s,t) => s + t.qty, 0);
-
-  // Marketplace split
-  function mpRevForIdxSet(advIds, mp) {
-    return advIds.reduce((s, id) => {
-      const d = MONTHLY_REVENUE[id];
-      return s + activeIdx.reduce((ss, i) => ss + d[mp][i] * 1e6, 0);
-    }, 0);
-  }
-  const advIds = isSPV ? ['adv1','adv2','adv3','adv4'] : [user.id];
-  const mpData = {
-    shopee: mpRevForIdxSet(advIds, 'shopee'),
-    lazada: mpRevForIdxSet(advIds, 'lazada'),
-    tiktok: mpRevForIdxSet(advIds, 'tiktok'),
-  };
-
-  // Monthly chart data
-  const chartLabels = activeIdx.map(i => MONTHS[i]);
-  const chartTotals = isSPV
-    ? activeIdx.map(i => ['adv1','adv2','adv3','adv4'].reduce((s,id) => {
-        const d = MONTHLY_REVENUE[id]; return s + (d.shopee[i]+d.lazada[i]+d.tiktok[i])*1e6; }, 0))
-    : activeIdx.map(i => { const d = MONTHLY_REVENUE[user.id]; return (d.shopee[i]+d.lazada[i]+d.tiktok[i])*1e6; });
-
-  const page = document.getElementById('pageContent');
-  page.innerHTML = `
+  document.getElementById('pageContent').innerHTML = `
     <div class="stat-grid">
       <div class="stat-card primary">
-        <div class="stat-label">Total Revenue Periode</div>
-        <div class="stat-value">${fmt(totalRev)}</div>
-        <div class="stat-sub">pertumbuhan: &nbsp;${growthBadge(revGrowth)}</div>
+        <div class="stat-label">Total Omset Periode</div>
+        <div class="stat-value">${fmt(stats.totalOmset)}</div>
+        <div class="stat-sub">${stats.totalOrders} order berhasil</div>
         <div class="stat-icon">💰</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Total Order</div>
-        <div class="stat-value">${orders.toLocaleString('id-ID')}</div>
+        <div class="stat-value">${stats.totalOrders}</div>
         <div class="stat-sub">Transaksi berhasil</div>
         <div class="stat-icon">📋</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">${isSPV ? 'Total ADV Tim' : 'Total Qty Terjual'}</div>
-        <div class="stat-value">${isSPV ? '4' : totalQty.toLocaleString('id-ID')}</div>
+        <div class="stat-value">${isSPV ? _profiles.length : stats.totalQty.toLocaleString('id-ID')}</div>
         <div class="stat-sub">${isSPV ? 'Anggota aktif' : 'Unit produk'}</div>
         <div class="stat-icon">${isSPV ? '👥' : '📦'}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">Produk Aktif</div>
-        <div class="stat-value">${isSPV ? PRODUCTS.length : PRODUCTS.filter(p=>p.adv===user.id).length}</div>
-        <div class="stat-sub">SKU berjalan</div>
-        <div class="stat-icon">🏷️</div>
+        <div class="stat-label">Dibatalkan</div>
+        <div class="stat-value" style="color:var(--danger)">${stats.cancelled}</div>
+        <div class="stat-sub">Order batal</div>
+        <div class="stat-icon">❌</div>
       </div>
     </div>
 
     <div class="two-col">
       <div class="card">
         <div class="card-header">
-          <div class="card-header-left">
-            <h3>Tren Revenue</h3>
-            <div class="card-sub">Performa periode terpilih</div>
-          </div>
+          <div class="card-header-left"><h3>Tren Omset</h3><div class="card-sub">Periode terpilih</div></div>
         </div>
-        <div class="chart-container" style="height:230px">
-          <canvas id="revenueChart"></canvas>
-        </div>
+        <div class="chart-container" style="height:230px"><canvas id="revenueChart"></canvas></div>
       </div>
       <div class="card">
         <div class="card-header">
-          <div class="card-header-left">
-            <h3>Revenue per Marketplace</h3>
-            <div class="card-sub">Distribusi periode ini</div>
-          </div>
+          <div class="card-header-left"><h3>Per Marketplace</h3><div class="card-sub">Distribusi periode ini</div></div>
         </div>
-        <div style="display:flex;gap:16px;align-items:center">
-          <div style="width:130px;height:130px;flex-shrink:0">
-            <canvas id="donutChart"></canvas>
-          </div>
-          <div class="donut-legend">
+        <div style="display:flex;gap:16px;align-items:center;height:160px">
+          <div style="width:130px;height:130px;flex-shrink:0"><canvas id="donutChart"></canvas></div>
+          <div class="donut-legend" style="flex:1">
             ${[
-              { label:'Shopee', color:'#EE4D2D', val: mpData.shopee, pct:'+4.2' },
-              { label:'Lazada', color:'#0F146D', val: mpData.lazada, pct:'+2.1' },
-              { label:'TikTok', color:'#666',    val: mpData.tiktok, pct:'+6.8' },
+              { label:'Shopee', color:'#EE4D2D', val:totalShopee },
+              { label:'Lazada', color:'#0F146D', val:totalLazada },
+              { label:'TikTok', color:'#666',    val:totalTiktok },
             ].map(item => `
               <div class="donut-item">
                 <div class="donut-name"><div class="donut-dot" style="background:${item.color}"></div>${item.label}</div>
                 <div class="donut-val">${fmt(item.val)}</div>
-                <div style="margin-left:6px">${growthBadge(item.pct)}</div>
               </div>
             `).join('')}
           </div>
@@ -162,33 +172,30 @@ function renderDashboard(user) {
       </div>
     </div>
 
-    ${isSPV ? renderTeamSection(activeIdx) : ''}
+    ${teamSection}
 
     <div class="card">
       <div class="card-header">
-        <div class="card-header-left">
-          <h3>Transaksi Terbaru</h3>
-          <div class="card-sub">${filteredTrx.length} transaksi di periode ini</div>
-        </div>
+        <div class="card-header-left"><h3>Transaksi Terbaru</h3><div class="card-sub">${trx.length} transaksi di periode ini</div></div>
         <a href="transaction.html" class="btn btn-outline btn-sm">Lihat Semua</a>
       </div>
       <div class="table-wrap">
         <table>
           <thead><tr>
-            <th>ID Transaksi</th>
-            ${isSPV ? '<th>ADV</th>' : ''}
+            <th>ID</th>${isSPV?'<th>ADV</th>':''}
             <th>Produk</th><th>Marketplace</th><th>Tanggal</th><th>Qty</th><th>Total</th><th>Status</th>
           </tr></thead>
           <tbody>
-            ${filteredTrx.slice(0,7).map(t => {
-              const advU = getUser(t.adv);
+            ${trx.slice(0,8).map(t => {
+              const p = t.profiles || {};
+              const color = assignUserColor(_profiles, t.adv_id);
               return `<tr>
-                <td style="font-family:monospace;font-size:.76rem;color:var(--text-3)">${t.id}</td>
-                ${isSPV ? `<td><div style="display:flex;align-items:center;gap:6px">
-                  <div class="user-avatar sm" style="background:${ADV_COLORS[t.adv]||'#4361EE'};font-size:.65rem">${advU?.avatar||'?'}</div>
-                  <span style="font-size:.82rem">${advU?.name.split(' ')[0]||'-'}</span>
-                </div></td>` : ''}
-                <td><div style="font-weight:600;font-size:.875rem">${t.product}</div><div style="font-size:.72rem;color:var(--text-3)">${t.sku}</div></td>
+                <td style="font-family:monospace;font-size:.73rem;color:var(--text-3)">${t.id}</td>
+                ${isSPV?`<td><div style="display:flex;align-items:center;gap:6px">
+                  <div class="user-avatar sm" style="background:${color};font-size:.65rem">${p.avatar||'?'}</div>
+                  <span style="font-size:.82rem">${p.name?.split(' ')[0]||'-'}</span>
+                </div></td>`:''}
+                <td><div style="font-weight:600">${t.product||'-'}</div><div style="font-size:.72rem;color:var(--text-3)">${t.sku}</div></td>
                 <td>${badgeMarketplace(t.marketplace)}</td>
                 <td style="color:var(--text-3);font-size:.82rem">${t.date}</td>
                 <td style="font-weight:700">${t.qty}</td>
@@ -196,127 +203,63 @@ function renderDashboard(user) {
                 <td>${badgeStatus(t.status)}</td>
               </tr>`;
             }).join('')}
-            ${filteredTrx.length === 0 ? `<tr><td colspan="${isSPV?8:7}" class="empty"><div class="icon">📭</div>Tidak ada transaksi di periode ini</td></tr>` : ''}
+            ${!trx.length?`<tr><td colspan="${isSPV?8:7}" class="empty"><div class="icon">📭</div>Belum ada transaksi di periode ini</td></tr>`:''}
           </tbody>
         </table>
       </div>
     </div>
   `;
 
-  // Destroy old charts
-  if (revenueChart) revenueChart.destroy();
-  if (donutChart)   donutChart.destroy();
-  if (teamChart)    teamChart.destroy();
-
   const gc = chartGridColor(), tc = chartTextColor();
 
-  revenueChart = new Chart(document.getElementById('revenueChart'), {
+  if (_revChart)  _revChart.destroy();
+  if (_donutChart) _donutChart.destroy();
+  if (_teamChart)  _teamChart.destroy();
+
+  _revChart = new Chart(document.getElementById('revenueChart'), {
     type: 'bar',
-    data: {
-      labels: chartLabels,
-      datasets: [{
-        label: 'Revenue',
-        data: chartTotals.map(v => v/1e6),
-        backgroundColor: chartLabels.map((_, i) => i === chartLabels.length-1 ? '#4361EE' : 'rgba(67,97,238,.3)'),
-        borderRadius: 6, borderSkipped: false,
-      }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { grid: { display: false }, ticks: { color: tc } },
-        y: { grid: { color: gc }, ticks: { color: tc, callback: v => 'Rp'+v+'Jt' } }
-      }
-    }
+    data: { labels, datasets: [{
+      label: 'Omset',
+      data: totals.map(v=>v/1e6),
+      backgroundColor: labels.map((_,i)=>i===labels.length-1?'#4361EE':'rgba(67,97,238,.3)'),
+      borderRadius:6, borderSkipped:false,
+    }]},
+    options: { responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false} },
+      scales:{ x:{grid:{display:false},ticks:{color:tc}}, y:{grid:{color:gc},ticks:{color:tc,callback:v=>'Rp'+v+'Jt'}} } }
   });
 
-  donutChart = new Chart(document.getElementById('donutChart'), {
+  _donutChart = new Chart(document.getElementById('donutChart'), {
     type: 'doughnut',
-    data: {
-      labels: ['Shopee','Lazada','TikTok'],
-      datasets: [{ data: [mpData.shopee, mpData.lazada, mpData.tiktok],
-        backgroundColor: ['#EE4D2D','#0F146D','#666'],
-        borderWidth: 3, borderColor: isDark() ? '#1E293B' : '#fff', hoverOffset: 6 }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false, cutout: '68%',
-      plugins: { legend: { display: false } }
-    }
+    data: { labels:['Shopee','Lazada','TikTok'],
+      datasets:[{ data:[totalShopee,totalLazada,totalTiktok],
+        backgroundColor:['#EE4D2D','#0F146D','#666'],
+        borderWidth:3, borderColor:isDark()?'#1E293B':'#fff', hoverOffset:6 }] },
+    options:{ responsive:true, maintainAspectRatio:false, cutout:'68%', plugins:{legend:{display:false}} }
   });
 
-  if (isSPV) renderTeamChart(activeIdx);
-}
-
-function renderTeamSection(activeIdx) {
-  const team = ['adv1','adv2','adv3','adv4'].map(id => {
-    const u = getUser(id);
-    const d = MONTHLY_REVENUE[id];
-    const total = activeIdx.reduce((s,i) => s + (d.shopee[i]+d.lazada[i]+d.tiktok[i])*1e6, 0);
-    return { id, name: u.name, avatar: u.avatar, total,
-      shopee: activeIdx.reduce((s,i)=>s+d.shopee[i]*1e6,0),
-      lazada: activeIdx.reduce((s,i)=>s+d.lazada[i]*1e6,0),
-      tiktok: activeIdx.reduce((s,i)=>s+d.tiktok[i]*1e6,0) };
-  }).sort((a,b) => b.total - a.total);
-
-  const maxVal = team[0].total || 1;
-  const ranks = ['gold','silver','bronze',''];
-
-  return `
-    <div class="two-col">
-      <div class="card">
-        <div class="card-header"><div class="card-header-left"><h3>Leaderboard Tim</h3><div class="card-sub">Revenue periode terpilih per ADV</div></div></div>
-        ${team.map((m,i) => `
-          <div class="team-item">
-            <div class="team-rank ${ranks[i]||''}">${i+1}</div>
-            <div class="user-avatar lg" style="background:${ADV_COLORS[m.id]||'#4361EE'}">${m.avatar}</div>
-            <div class="team-info">
-              <div class="team-name">${m.name}</div>
-              <div class="progress" style="margin-top:6px">
-                <div class="progress-fill" style="width:${(m.total/maxVal*100).toFixed(0)}%"></div>
-              </div>
-            </div>
-            <div class="team-value">${fmt(m.total)}</div>
-          </div>
-        `).join('')}
-      </div>
-      <div class="card">
-        <div class="card-header"><div class="card-header-left"><h3>Perbandingan Tim</h3><div class="card-sub">Revenue per ADV per marketplace</div></div></div>
-        <div class="chart-container" style="height:240px"><canvas id="teamChart"></canvas></div>
-      </div>
-    </div>
-  `;
-}
-
-function renderTeamChart(activeIdx) {
-  const team = ['adv1','adv2','adv3','adv4'].map(id => {
-    const u = getUser(id); const d = MONTHLY_REVENUE[id];
-    return { name: u.name.split(' ')[0],
-      shopee: activeIdx.reduce((s,i)=>s+d.shopee[i]*1e6,0),
-      lazada: activeIdx.reduce((s,i)=>s+d.lazada[i]*1e6,0),
-      tiktok: activeIdx.reduce((s,i)=>s+d.tiktok[i]*1e6,0) };
-  });
-
-  const gc = chartGridColor(), tc = chartTextColor();
-  teamChart = new Chart(document.getElementById('teamChart'), {
-    type: 'bar',
-    data: {
-      labels: team.map(m => m.name),
-      datasets: [
-        { label:'Shopee', data: team.map(m=>m.shopee/1e6), backgroundColor:'#EE4D2D', borderRadius:4 },
-        { label:'Lazada', data: team.map(m=>m.lazada/1e6), backgroundColor:'#0F146D', borderRadius:4 },
-        { label:'TikTok', data: team.map(m=>m.tiktok/1e6), backgroundColor:'#888',    borderRadius:4 },
-      ]
-    },
-    options: {
-      responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{ position:'top', labels:{ font:{size:11}, color:tc } } },
-      scales:{
-        x:{ stacked:true, grid:{display:false}, ticks:{color:tc} },
-        y:{ stacked:true, grid:{color:gc}, ticks:{color:tc, callback:v=>'Rp'+v+'Jt'} }
-      }
-    }
-  });
+  // Team chart (SPV)
+  if (isSPV && document.getElementById('teamChart') && _profiles.length) {
+    const teamMap = {};
+    trx.filter(t=>t.status!=='dibatalkan').forEach(t => {
+      if (!teamMap[t.adv_id]) teamMap[t.adv_id] = { shopee:0, lazada:0, tiktok:0 };
+      if (teamMap[t.adv_id][t.marketplace] !== undefined)
+        teamMap[t.adv_id][t.marketplace] += t.qty * t.price;
+    });
+    const team = _profiles.map(p => ({ name:p.name.split(' ')[0], ...teamMap[p.id]||{shopee:0,lazada:0,tiktok:0} }));
+    _teamChart = new Chart(document.getElementById('teamChart'), {
+      type:'bar',
+      data:{ labels:team.map(m=>m.name), datasets:[
+        { label:'Shopee', data:team.map(m=>m.shopee/1e6), backgroundColor:'#EE4D2D', borderRadius:4 },
+        { label:'Lazada', data:team.map(m=>m.lazada/1e6), backgroundColor:'#0F146D', borderRadius:4 },
+        { label:'TikTok', data:team.map(m=>m.tiktok/1e6), backgroundColor:'#888',    borderRadius:4 },
+      ]},
+      options:{ responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{ position:'top', labels:{font:{size:11},color:tc} } },
+        scales:{ x:{stacked:true,grid:{display:false},ticks:{color:tc}},
+                 y:{stacked:true,grid:{color:gc},ticks:{color:tc,callback:v=>'Rp'+v+'Jt'}} } }
+    });
+  }
 }
 </script>
 </body>

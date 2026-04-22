@@ -6,6 +6,7 @@
 <title>Report — MarketDash</title>
 <link rel="stylesheet" href="css/main.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -20,55 +21,41 @@
     </div>
   </div>
 </div>
-<script src="js/data.js"></script>
+<script src="js/config.js"></script>
+<script src="js/db.js"></script>
 <script src="js/auth.js"></script>
 <script src="js/app.js"></script>
 <script src="js/upload.js"></script>
 <script>
-const user = requireAuth();
-let mainChartInst, mpChartInst;
-let _advFilter = 'all';
+let _user, _profiles = [], _mainChart, _mpChart, _advFilter = 'all';
 
-if (user) {
-  renderLayout('report', user);
+(async () => {
+  _user = await requireAuth();
+  if (!_user) return;
+  _profiles = await dbGetAllProfiles().catch(() => []);
+  _user._color = _user.role === 'spv' ? '#EF233C' : assignUserColor(_profiles, _user.id);
+  renderLayout('report', _user);
   renderDateFilter('dateFilterContainer', 'refreshPage');
-  buildPage();
-}
 
-function buildPage() {
-  const isSPV = user.role === 'spv';
+  const isSPV = _user.role === 'spv';
   document.getElementById('pageContent').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:12px">
-      <div>
-        <h2 style="font-weight:800">Laporan Revenue</h2>
-        <div style="color:var(--text-3);font-size:.85rem">Analisis performa penjualan marketplace</div>
-      </div>
+      <div><h2 style="font-weight:800">Laporan Revenue</h2><div style="color:var(--text-3);font-size:.85rem">Analisis performa penjualan</div></div>
       <button class="btn btn-primary" onclick="exportCSV()">⬇ Export CSV</button>
     </div>
-
     ${isSPV ? `
     <div class="card" style="margin-bottom:18px">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <span style="font-size:.82rem;font-weight:700;color:var(--text-3)">Filter ADV:</span>
         <button class="btn btn-primary btn-sm" id="btnAdvAll" onclick="setAdvFilter('all')">Semua Tim</button>
-        ${['adv1','adv2','adv3','adv4'].map(id => {
-          const u = getUser(id);
-          return `<button class="btn btn-outline btn-sm" id="btnAdv-${id}" onclick="setAdvFilter('${id}')">${u.name.split(' ')[0]}</button>`;
-        }).join('')}
+        ${_profiles.map(p => `<button class="btn btn-outline btn-sm" id="btnAdv-${p.id}" onclick="setAdvFilter('${p.id}')">${p.name.split(' ')[0]}</button>`).join('')}
       </div>
     </div>` : ''}
-
     <div class="stat-grid" id="summaryCards"></div>
-
-    <div class="two-col">
-      <div class="card" style="grid-column:1/-1">
-        <div class="card-header">
-          <div class="card-header-left"><h3>Revenue Bulanan</h3><div class="card-sub">Periode terpilih</div></div>
-        </div>
-        <div class="chart-container" style="height:260px"><canvas id="mainChart"></canvas></div>
-      </div>
+    <div class="card" style="margin-bottom:18px">
+      <div class="card-header"><div class="card-header-left"><h3>Tren Revenue Bulanan</h3></div></div>
+      <div class="chart-container" style="height:260px"><canvas id="mainChart"></canvas></div>
     </div>
-
     <div class="two-col">
       <div class="card">
         <div class="card-header"><div class="card-header-left"><h3>Per Marketplace</h3></div></div>
@@ -77,133 +64,100 @@ function buildPage() {
       <div class="card">
         <div class="card-header"><div class="card-header-left"><h3>Tabel Bulanan</h3></div></div>
         <div class="table-wrap">
-          <table id="monthlyTable">
-            <thead><tr><th>Bulan</th><th>Shopee</th><th>Lazada</th><th>TikTok</th><th>Total</th></tr></thead>
-            <tbody id="monthlyTbody"></tbody>
-          </table>
+          <table><thead><tr><th>Bulan</th><th>Shopee</th><th>Lazada</th><th>TikTok</th><th>Total</th></tr></thead>
+          <tbody id="monthlyTbody"></tbody></table>
         </div>
       </div>
     </div>
   `;
-  refreshPage();
-}
+  await refreshPage();
+})();
 
 function setAdvFilter(filter) {
   _advFilter = filter;
   document.querySelectorAll('[id^="btnAdv"]').forEach(b => b.className = 'btn btn-outline btn-sm');
-  const active = filter === 'all' ? document.getElementById('btnAdvAll') : document.getElementById(`btnAdv-${filter}`);
-  if (active) active.className = 'btn btn-primary btn-sm';
+  const el = filter === 'all' ? document.getElementById('btnAdvAll') : document.getElementById(`btnAdv-${filter}`);
+  if (el) el.className = 'btn btn-primary btn-sm';
   refreshPage();
 }
 
-function refreshPage() {
-  const isSPV = user.role === 'spv';
-  const activeIdx = getActiveMonthIndices();
-  const advIds = isSPV
-    ? (_advFilter === 'all' ? ['adv1','adv2','adv3','adv4'] : [_advFilter])
-    : [user.id];
+async function refreshPage() {
+  const { from, to } = window._dateFilter;
+  const filters = { dateFrom: from, dateTo: to };
+  if (_user.role !== 'spv') filters.advId = _user.id;
+  else if (_advFilter !== 'all') filters.advId = _advFilter;
 
-  const shopeeM = activeIdx.map(i => advIds.reduce((s,id) => s + MONTHLY_REVENUE[id].shopee[i], 0) * 1e6);
-  const lazadaM = activeIdx.map(i => advIds.reduce((s,id) => s + MONTHLY_REVENUE[id].lazada[i], 0) * 1e6);
-  const tiktokM = activeIdx.map(i => advIds.reduce((s,id) => s + MONTHLY_REVENUE[id].tiktok[i], 0) * 1e6);
-  const totalM  = activeIdx.map((_, j) => shopeeM[j] + lazadaM[j] + tiktokM[j]);
-  const labels  = activeIdx.map(i => MONTHS[i]);
+  try {
+    const trx = await dbGetTransactions(filters);
+    const monthly = calcMonthlyRevenue(trx);
+    const months  = Object.keys(monthly).sort();
 
-  const grandTotal = totalM.reduce((s,v)=>s+v,0);
-  const lastTotal  = totalM[totalM.length-1] || 0;
-  const prevTotal  = totalM[totalM.length-2] || lastTotal;
-  const growth = prevTotal ? ((lastTotal-prevTotal)/prevTotal*100).toFixed(1) : '0.0';
+    const monthLabel = m => {
+      const [y,mo] = m.split('-');
+      return ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'][parseInt(mo)-1] + " '" + y.slice(2);
+    };
 
-  // Summary cards
-  document.getElementById('summaryCards').innerHTML = `
-    <div class="stat-card primary">
-      <div class="stat-label">Total Revenue Periode</div>
-      <div class="stat-value">${fmt(grandTotal)}</div>
-      <div class="stat-sub">Semua marketplace</div>
-      <div class="stat-icon">💰</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Shopee</div>
-      <div class="stat-value">${fmt(shopeeM.reduce((s,v)=>s+v,0))}</div>
-      <div class="stat-sub" style="color:#EE4D2D">● Shopee</div>
-      <div class="stat-icon">🛍️</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Lazada</div>
-      <div class="stat-value">${fmt(lazadaM.reduce((s,v)=>s+v,0))}</div>
-      <div class="stat-sub" style="color:#0F146D">● Lazada</div>
-      <div class="stat-icon">🏪</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">TikTok Shop</div>
-      <div class="stat-value">${fmt(tiktokM.reduce((s,v)=>s+v,0))}</div>
-      <div class="stat-sub" style="color:#666">● TikTok</div>
-      <div class="stat-icon">🎵</div>
-    </div>
-  `;
+    const labels  = months.map(monthLabel);
+    const shopeeD = months.map(m => monthly[m].shopee);
+    const lazadaD = months.map(m => monthly[m].lazada);
+    const tiktokD = months.map(m => monthly[m].tiktok);
+    const totalD  = months.map(m => monthly[m].total);
 
-  // Monthly table
-  document.getElementById('monthlyTbody').innerHTML = labels.map((m, j) => `
-    <tr>
-      <td style="font-weight:700">${m}</td>
-      <td>${fmt(shopeeM[j])}</td>
-      <td>${fmt(lazadaM[j])}</td>
-      <td>${fmt(tiktokM[j])}</td>
-      <td style="font-weight:800;color:var(--primary)">${fmt(totalM[j])}</td>
-    </tr>
-  `).join('') || `<tr><td colspan="5" class="empty"><div class="icon">📭</div>Pilih periode yang memiliki data</td></tr>`;
+    const sumShopee = shopeeD.reduce((s,v)=>s+v,0);
+    const sumLazada = lazadaD.reduce((s,v)=>s+v,0);
+    const sumTiktok = tiktokD.reduce((s,v)=>s+v,0);
+    const grand     = sumShopee + sumLazada + sumTiktok;
 
-  const gc = chartGridColor(), tc = chartTextColor();
+    document.getElementById('summaryCards').innerHTML = `
+      <div class="stat-card primary"><div class="stat-label">Total Omset</div><div class="stat-value">${fmt(grand)}</div><div class="stat-sub">Semua marketplace</div><div class="stat-icon">💰</div></div>
+      <div class="stat-card"><div class="stat-label">Shopee</div><div class="stat-value">${fmt(sumShopee)}</div><div class="stat-sub" style="color:#EE4D2D">● Shopee</div><div class="stat-icon">🛍️</div></div>
+      <div class="stat-card"><div class="stat-label">Lazada</div><div class="stat-value">${fmt(sumLazada)}</div><div class="stat-sub" style="color:#0F146D">● Lazada</div><div class="stat-icon">🏪</div></div>
+      <div class="stat-card"><div class="stat-label">TikTok Shop</div><div class="stat-value">${fmt(sumTiktok)}</div><div class="stat-sub" style="color:#666">● TikTok</div><div class="stat-icon">🎵</div></div>
+    `;
 
-  if (mainChartInst) mainChartInst.destroy();
-  mainChartInst = new Chart(document.getElementById('mainChart'), {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [
-        { label:'Shopee', data:shopeeM.map(v=>v/1e6), borderColor:'#EE4D2D', backgroundColor:'rgba(238,77,45,.08)', tension:.4, fill:true, pointRadius:4, pointBackgroundColor:'#EE4D2D' },
-        { label:'Lazada', data:lazadaM.map(v=>v/1e6), borderColor:'#0F146D', backgroundColor:'rgba(15,20,109,.08)', tension:.4, fill:true, pointRadius:4, pointBackgroundColor:'#0F146D' },
-        { label:'TikTok', data:tiktokM.map(v=>v/1e6), borderColor:'#888',    backgroundColor:'rgba(100,100,100,.06)', tension:.4, fill:true, pointRadius:4, pointBackgroundColor:'#888' },
-      ]
-    },
-    options: {
-      responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{ position:'top', labels:{font:{size:11},color:tc} } },
-      scales:{
-        x:{grid:{display:false},ticks:{color:tc}},
-        y:{grid:{color:gc},ticks:{color:tc,callback:v=>'Rp'+v+'Jt'}}
-      }
-    }
-  });
+    document.getElementById('monthlyTbody').innerHTML = months.length
+      ? months.map((m,i) => `<tr><td style="font-weight:700">${monthLabel(m)}</td><td>${fmt(shopeeD[i])}</td><td>${fmt(lazadaD[i])}</td><td>${fmt(tiktokD[i])}</td><td style="font-weight:800;color:var(--primary)">${fmt(totalD[i])}</td></tr>`).join('')
+      : `<tr><td colspan="5" class="empty"><div class="icon">📭</div>Tidak ada data</td></tr>`;
 
-  if (mpChartInst) mpChartInst.destroy();
-  mpChartInst = new Chart(document.getElementById('mpChart'), {
-    type: 'pie',
-    data: {
-      labels:['Shopee','Lazada','TikTok'],
-      datasets:[{ data:[shopeeM.reduce((s,v)=>s+v,0), lazadaM.reduce((s,v)=>s+v,0), tiktokM.reduce((s,v)=>s+v,0)],
-        backgroundColor:['#EE4D2D','#0F146D','#888'], borderWidth:3,
-        borderColor: isDark()?'#1E293B':'#fff', hoverOffset:8 }]
-    },
-    options:{
-      responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{ position:'bottom', labels:{font:{size:11},color:tc} } }
-    }
-  });
+    const gc = chartGridColor(), tc = chartTextColor();
+    if (_mainChart) _mainChart.destroy();
+    _mainChart = new Chart(document.getElementById('mainChart'), {
+      type:'line',
+      data:{ labels, datasets:[
+        { label:'Shopee', data:shopeeD.map(v=>v/1e6), borderColor:'#EE4D2D', backgroundColor:'rgba(238,77,45,.08)', tension:.4, fill:true, pointRadius:4, pointBackgroundColor:'#EE4D2D' },
+        { label:'Lazada', data:lazadaD.map(v=>v/1e6), borderColor:'#0F146D', backgroundColor:'rgba(15,20,109,.08)',  tension:.4, fill:true, pointRadius:4, pointBackgroundColor:'#0F146D' },
+        { label:'TikTok', data:tiktokD.map(v=>v/1e6), borderColor:'#888',    backgroundColor:'rgba(100,100,100,.06)',tension:.4, fill:true, pointRadius:4, pointBackgroundColor:'#888'    },
+      ]},
+      options:{ responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{ position:'top', labels:{font:{size:11},color:tc} } },
+        scales:{ x:{grid:{display:false},ticks:{color:tc}}, y:{grid:{color:gc},ticks:{color:tc,callback:v=>'Rp'+v+'Jt'}} } }
+    });
 
-  window._reportData = { labels, shopeeM, lazadaM, tiktokM, totalM };
+    if (_mpChart) _mpChart.destroy();
+    _mpChart = new Chart(document.getElementById('mpChart'), {
+      type:'pie',
+      data:{ labels:['Shopee','Lazada','TikTok'],
+        datasets:[{ data:[sumShopee,sumLazada,sumTiktok],
+          backgroundColor:['#EE4D2D','#0F146D','#888'],
+          borderWidth:3, borderColor:isDark()?'#1E293B':'#fff', hoverOffset:8 }] },
+      options:{ responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{ position:'bottom', labels:{font:{size:11},color:tc} } } }
+    });
+
+    window._reportData = { labels, shopeeD, lazadaD, tiktokD, totalD };
+  } catch(e) {
+    showError('Gagal memuat data: ' + e.message);
+  }
 }
 
 function exportCSV() {
   const d = window._reportData;
   if (!d) return;
   const rows = [['Bulan','Shopee','Lazada','TikTok','Total']];
-  d.labels.forEach((m,i) => rows.push([m, d.shopeeM[i], d.lazadaM[i], d.tiktokM[i], d.totalM[i]]));
-  const csv = rows.map(r => r.join(',')).join('\n');
+  d.labels.forEach((m,i) => rows.push([m, d.shopeeD[i], d.lazadaD[i], d.tiktokD[i], d.totalD[i]]));
   const a = document.createElement('a');
-  a.href = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent(csv);
-  a.download = 'report-revenue.csv';
-  a.click();
+  a.href = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent(rows.map(r=>r.join(',')).join('\n'));
+  a.download = 'report.csv'; a.click();
 }
 </script>
 </body>

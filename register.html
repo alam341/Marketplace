@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Daftar — MarketDash</title>
+<link rel="stylesheet" href="css/main.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  .register-card { max-width: 460px; }
+  .step-indicator {
+    display: flex; gap: 8px; align-items: center; margin-bottom: 28px;
+  }
+  .step-dot {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: .75rem; font-weight: 800; flex-shrink: 0;
+  }
+  .step-dot.done   { background: #06C270; color: white; }
+  .step-dot.active { background: #4361EE; color: white; }
+  .step-dot.idle   { background: #E8EAF0; color: #8A94A6; }
+  .step-line { flex: 1; height: 2px; background: #E8EAF0; border-radius: 1px; }
+  .step-line.done { background: #06C270; }
+  .password-wrap { position: relative; }
+  .password-wrap input { padding-right: 42px; }
+  .toggle-pw {
+    position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+    background: none; border: none; cursor: pointer; font-size: 1rem;
+    color: #8A94A6; padding: 2px;
+  }
+  .strength-bar { height: 4px; border-radius: 2px; background: #E8EAF0; margin-top: 6px; overflow: hidden; }
+  .strength-fill { height: 100%; border-radius: 2px; transition: width .3s, background .3s; }
+  .strength-label { font-size: .72rem; margin-top: 4px; font-weight: 600; }
+  .input-hint { font-size: .73rem; color: #8A94A6; margin-top: 4px; }
+  .input-error { font-size: .73rem; color: #EF233C; margin-top: 4px; display: none; }
+  .form-group.has-error input { border-color: #EF233C; }
+  .form-group.has-success input { border-color: #06C270; }
+  .back-link {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: #4361EE; font-size: .85rem; font-weight: 600;
+    text-decoration: none; margin-bottom: 20px;
+  }
+  .back-link:hover { text-decoration: underline; }
+  .success-screen { text-align: center; padding: 20px 0; }
+  .success-icon { font-size: 4rem; margin-bottom: 16px; }
+  .avatar-preview {
+    width: 52px; height: 52px; border-radius: 50%;
+    background: #4361EE; color: white; font-weight: 800; font-size: 1.1rem;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 12px; border: 3px solid #E8EAF0;
+  }
+  .terms-check { display: flex; align-items: flex-start; gap: 10px; margin-top: 4px; }
+  .terms-check input[type=checkbox] { margin-top: 2px; flex-shrink: 0; width: 16px; height: 16px; cursor: pointer; }
+  .terms-check label { font-size: .82rem; color: #4A5568; cursor: pointer; line-height: 1.4; }
+</style>
+</head>
+<body>
+<div class="login-page">
+  <div class="login-card register-card">
+
+    <div class="login-logo">
+      <div class="logo-icon" style="background:#4361EE;color:#fff;width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1.3rem">M</div>
+      <span style="font-size:1.3rem;font-weight:700">MarketDash</span>
+    </div>
+
+    <a href="index.html" class="back-link">← Kembali ke Login</a>
+
+    <!-- Step indicator -->
+    <div class="step-indicator" id="stepIndicator">
+      <div class="step-dot active" id="dot1">1</div>
+      <div class="step-line" id="line1"></div>
+      <div class="step-dot idle" id="dot2">2</div>
+      <div class="step-line" id="line2"></div>
+      <div class="step-dot idle" id="dot3">✓</div>
+    </div>
+
+    <div class="login-error" id="regError"></div>
+
+    <!-- STEP 1: Data Diri -->
+    <div id="step1">
+      <h2 style="margin-bottom:4px">Buat Akun ADV</h2>
+      <p style="color:#8A94A6;font-size:.875rem;margin-bottom:22px">Isi data diri untuk mendaftar sebagai Advertiser</p>
+
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px;padding:14px;background:#F5F6FA;border-radius:12px">
+        <div class="avatar-preview" id="avatarPreview">?</div>
+        <div>
+          <div style="font-size:.78rem;color:#8A94A6;margin-bottom:2px">Preview Profil</div>
+          <div style="font-weight:700;color:#1A1A2E" id="previewName">Nama Anda</div>
+          <div style="font-size:.75rem;color:#8A94A6">Advertiser</div>
+        </div>
+      </div>
+
+      <div class="form-group" id="fgName">
+        <label>Nama Lengkap *</label>
+        <input type="text" id="fullName" placeholder="Contoh: Budi Santoso"
+          oninput="updateNamePreview(this.value)" autocomplete="name">
+        <div class="input-hint">Nama akan tampil di dashboard tim</div>
+        <div class="input-error" id="errName">Nama minimal 3 karakter</div>
+      </div>
+
+      <div class="form-group" id="fgEmail">
+        <label>Email *</label>
+        <input type="email" id="regEmail" placeholder="nama@email.com" autocomplete="email" oninput="clearErr('fgEmail','errEmail')">
+        <div class="input-hint">Gunakan email aktif untuk verifikasi</div>
+        <div class="input-error" id="errEmail">Format email tidak valid</div>
+      </div>
+
+      <button class="btn-login" onclick="nextStep1()">Lanjut →</button>
+    </div>
+
+    <!-- STEP 2: Password -->
+    <div id="step2" style="display:none">
+      <h2 style="margin-bottom:4px">Buat Password</h2>
+      <p style="color:#8A94A6;font-size:.875rem;margin-bottom:22px">Buat password yang kuat untuk keamanan akun Anda</p>
+
+      <div class="form-group" id="fgPw">
+        <label>Password *</label>
+        <div class="password-wrap">
+          <input type="password" id="regPw" placeholder="Min. 8 karakter"
+            oninput="checkStrength(this.value)" autocomplete="new-password">
+          <button class="toggle-pw" type="button" onclick="togglePw('regPw', this)">👁️</button>
+        </div>
+        <div class="strength-bar"><div class="strength-fill" id="strengthFill" style="width:0%"></div></div>
+        <div class="strength-label" id="strengthLabel" style="color:#8A94A6">Masukkan password</div>
+        <div class="input-error" id="errPw">Password minimal 8 karakter</div>
+      </div>
+
+      <div class="form-group" id="fgPwConfirm">
+        <label>Konfirmasi Password *</label>
+        <div class="password-wrap">
+          <input type="password" id="regPwConfirm" placeholder="Ulangi password Anda"
+            oninput="checkConfirm(this.value)" autocomplete="new-password">
+          <button class="toggle-pw" type="button" onclick="togglePw('regPwConfirm', this)">👁️</button>
+        </div>
+        <div class="input-error" id="errPwConfirm">Password tidak cocok</div>
+      </div>
+
+      <div class="terms-check">
+        <input type="checkbox" id="terms">
+        <label for="terms">Saya menyetujui bahwa data yang saya masukkan adalah benar dan akan digunakan untuk keperluan tim MarketDash.</label>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-top:18px">
+        <button class="btn btn-outline" onclick="goStep(1)" style="flex:0 0 auto;padding:12px 20px">←</button>
+        <button class="btn-login" onclick="doRegister()" id="btnRegister" style="flex:1">Daftar Sekarang</button>
+      </div>
+    </div>
+
+    <!-- STEP 3: Sukses -->
+    <div id="step3" style="display:none">
+      <div class="success-screen">
+        <div class="success-icon">🎉</div>
+        <h2 style="margin-bottom:8px">Pendaftaran Berhasil!</h2>
+        <p style="color:#8A94A6;font-size:.875rem;margin-bottom:20px">
+          Akun <strong id="successName"></strong> berhasil dibuat.<br>
+          Silakan cek email Anda untuk verifikasi, lalu login.
+        </p>
+        <div style="background:#F0FFF8;border:1px solid #C6F6D5;border-radius:10px;padding:14px 18px;margin-bottom:20px;text-align:left">
+          <div style="font-size:.82rem;font-weight:700;color:#276749;margin-bottom:6px">📧 Cek Email Verifikasi</div>
+          <div style="font-size:.8rem;color:#276749">Supabase akan mengirim link verifikasi ke email Anda. Klik link tersebut sebelum login.</div>
+        </div>
+        <a href="index.html" class="btn-login" style="display:block;text-align:center;text-decoration:none">Login Sekarang →</a>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/db.js"></script>
+<script>
+let _currentStep = 1;
+
+// ── Preview nama & avatar ─────────────────────────────────────────────────────
+function updateNamePreview(val) {
+  const words = val.trim().split(/\s+/).filter(Boolean);
+  const initials = words.length >= 2
+    ? (words[0][0] + words[words.length-1][0]).toUpperCase()
+    : val.slice(0,2).toUpperCase() || '?';
+  document.getElementById('avatarPreview').textContent = initials;
+  document.getElementById('previewName').textContent   = val.trim() || 'Nama Anda';
+  clearErr('fgName','errName');
+}
+
+// ── Password strength ─────────────────────────────────────────────────────────
+function checkStrength(pw) {
+  clearErr('fgPw','errPw');
+  let score = 0;
+  if (pw.length >= 8)  score++;
+  if (pw.length >= 12) score++;
+  if (/[A-Z]/.test(pw)) score++;
+  if (/[0-9]/.test(pw)) score++;
+  if (/[^A-Za-z0-9]/.test(pw)) score++;
+
+  const levels = [
+    { pct:'20%', color:'#EF233C', label:'Sangat Lemah' },
+    { pct:'40%', color:'#FFB703', label:'Lemah' },
+    { pct:'60%', color:'#FFB703', label:'Cukup' },
+    { pct:'80%', color:'#06C270', label:'Kuat' },
+    { pct:'100%',color:'#06C270', label:'Sangat Kuat 💪' },
+  ];
+  const lv = levels[Math.max(0, score-1)] || levels[0];
+  document.getElementById('strengthFill').style.width    = pw ? lv.pct : '0%';
+  document.getElementById('strengthFill').style.background = lv.color;
+  document.getElementById('strengthLabel').textContent   = pw ? lv.label : 'Masukkan password';
+  document.getElementById('strengthLabel').style.color   = pw ? lv.color : '#8A94A6';
+
+  // Also recheck confirm
+  const confirm = document.getElementById('regPwConfirm').value;
+  if (confirm) checkConfirm(confirm);
+}
+
+function checkConfirm(val) {
+  const pw = document.getElementById('regPw').value;
+  const fg = document.getElementById('fgPwConfirm');
+  const err = document.getElementById('errPwConfirm');
+  if (val && pw !== val) {
+    fg.classList.add('has-error'); fg.classList.remove('has-success');
+    err.style.display = 'block';
+  } else if (val && pw === val) {
+    fg.classList.remove('has-error'); fg.classList.add('has-success');
+    err.style.display = 'none';
+  }
+}
+
+function togglePw(inputId, btn) {
+  const inp = document.getElementById(inputId);
+  const isText = inp.type === 'text';
+  inp.type = isText ? 'password' : 'text';
+  btn.textContent = isText ? '👁️' : '🙈';
+}
+
+// ── Validasi & step navigation ────────────────────────────────────────────────
+function clearErr(fgId, errId) {
+  document.getElementById(fgId)?.classList.remove('has-error');
+  const e = document.getElementById(errId);
+  if (e) e.style.display = 'none';
+}
+
+function setErr(fgId, errId) {
+  document.getElementById(fgId)?.classList.add('has-error');
+  document.getElementById(fgId)?.classList.remove('has-success');
+  const e = document.getElementById(errId);
+  if (e) e.style.display = 'block';
+  return false;
+}
+
+function nextStep1() {
+  const name  = document.getElementById('fullName').value.trim();
+  const email = document.getElementById('regEmail').value.trim();
+  let ok = true;
+
+  if (name.length < 3)         ok = setErr('fgName','errName');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) ok = setErr('fgEmail','errEmail');
+
+  if (ok) goStep(2);
+}
+
+function goStep(n) {
+  _currentStep = n;
+  document.getElementById('step1').style.display = n===1?'block':'none';
+  document.getElementById('step2').style.display = n===2?'block':'none';
+  document.getElementById('step3').style.display = n===3?'block':'none';
+
+  // Update indicators
+  for (let i=1; i<=3; i++) {
+    const dot  = document.getElementById('dot'+i);
+    if (!dot) continue;
+    dot.className = 'step-dot ' + (i < n ? 'done' : i === n ? 'active' : 'idle');
+    if (i < n) dot.textContent = '✓';
+    else dot.textContent = i < 3 ? i : '✓';
+  }
+  for (let i=1; i<=2; i++) {
+    const line = document.getElementById('line'+i);
+    if (line) line.className = 'step-line' + (i < n ? ' done' : '');
+  }
+}
+
+// ── Register ──────────────────────────────────────────────────────────────────
+async function doRegister() {
+  const pw      = document.getElementById('regPw').value;
+  const pwC     = document.getElementById('regPwConfirm').value;
+  const terms   = document.getElementById('terms').checked;
+  const name    = document.getElementById('fullName').value.trim();
+  const email   = document.getElementById('regEmail').value.trim();
+  const errEl   = document.getElementById('regError');
+  let ok = true;
+
+  errEl.style.display = 'none';
+  if (pw.length < 8)   ok = setErr('fgPw','errPw');
+  if (pw !== pwC)      ok = setErr('fgPwConfirm','errPwConfirm');
+  if (!terms) {
+    errEl.textContent = '⚠️ Anda harus menyetujui pernyataan di atas.';
+    errEl.style.display = 'block'; ok = false;
+  }
+  if (!ok) return;
+
+  const btn = document.getElementById('btnRegister');
+  btn.textContent = 'Mendaftar...'; btn.disabled = true;
+
+  try {
+    // Buat user di Supabase Auth
+    // Trigger handle_new_user() otomatis buat profil dengan role='adv'
+    const words    = name.split(/\s+/);
+    const avatar   = words.length >= 2
+      ? (words[0][0]+words[words.length-1][0]).toUpperCase()
+      : name.slice(0,2).toUpperCase();
+
+    const { data, error } = await window.supabase
+      .createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+      .auth.signUp({
+        email,
+        password: pw,
+        options: {
+          data: { name, avatar, role: 'adv' }
+        }
+      });
+
+    if (error) throw error;
+
+    document.getElementById('successName').textContent = name;
+    goStep(3);
+  } catch(e) {
+    errEl.textContent = '❌ ' + (e.message || 'Gagal mendaftar. Coba lagi.');
+    errEl.style.display = 'block';
+    btn.textContent = 'Daftar Sekarang'; btn.disabled = false;
+  }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    if (_currentStep === 1) nextStep1();
+    else if (_currentStep === 2) doRegister();
+  }
+});
+</script>
+</body>
+</html>

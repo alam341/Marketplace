@@ -6,72 +6,95 @@
 <title>Login — MarketDash</title>
 <link rel="stylesheet" href="css/main.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 <div class="login-page">
   <div class="login-card">
     <div class="login-logo">
       <div class="logo-icon" style="background:#4361EE;color:#fff;width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1.3rem">M</div>
-      <span class="logo-text" style="font-size:1.3rem;font-weight:700">MarketDash</span>
+      <span style="font-size:1.3rem;font-weight:700">MarketDash</span>
     </div>
     <h2>Selamat Datang 👋</h2>
-    <p>Login untuk mengakses dashboard marketplace Anda</p>
+    <p style="color:#8A94A6;font-size:.875rem;margin-bottom:24px">Login untuk mengakses dashboard marketplace Anda</p>
 
-    <div class="login-error" id="loginError">Username atau password salah.</div>
+    <div class="login-error" id="loginError"></div>
 
     <div class="form-group">
-      <label>Username</label>
-      <input type="text" id="username" placeholder="Masukkan username" autocomplete="username">
+      <label>Email</label>
+      <input type="email" id="email" placeholder="contoh@marketdash.id" autocomplete="email">
     </div>
     <div class="form-group">
       <label>Password</label>
       <input type="password" id="password" placeholder="Masukkan password" autocomplete="current-password">
     </div>
 
-    <button class="btn-login" onclick="doLogin()">Masuk</button>
+    <button class="btn-login" id="btnLogin" onclick="doLogin()">Masuk</button>
+
+    <div style="text-align:center;margin-top:16px;font-size:.85rem;color:#8A94A6">
+      Belum punya akun?
+      <a href="register.html" style="color:#4361EE;font-weight:700;text-decoration:none">Daftar sebagai ADV →</a>
+    </div>
 
     <div class="demo-creds">
       <h4>Demo Credentials</h4>
-      <div class="demo-item">👑 <strong>SPV</strong> — spv / password123 (lihat semua team)</div>
-      <div class="demo-item">📣 <strong>ADV</strong> — adv1–adv4 / password123 (data pribadi)</div>
+      <div class="demo-item">👑 <strong>SPV</strong> — spv@marketdash.id / password123</div>
+      <div class="demo-item">📣 <strong>ADV</strong> — budi@marketdash.id / password123</div>
       <div class="demo-quick">
-        <button onclick="quickLogin('spv')">SPV – Andi</button>
-        <button onclick="quickLogin('adv1')">ADV – Budi</button>
-        <button onclick="quickLogin('adv2')">ADV – Sari</button>
-        <button onclick="quickLogin('adv3')">ADV – Ahmad</button>
-        <button onclick="quickLogin('adv4')">ADV – Rina</button>
+        <button onclick="quick('spv@marketdash.id')">SPV – Andi</button>
+        <button onclick="quick('budi@marketdash.id')">ADV – Budi</button>
+        <button onclick="quick('sari@marketdash.id')">ADV – Sari</button>
+        <button onclick="quick('ahmad@marketdash.id')">ADV – Ahmad</button>
+        <button onclick="quick('rina@marketdash.id')">ADV – Rina</button>
       </div>
     </div>
   </div>
 </div>
 
-<script src="js/data.js"></script>
+<script src="js/config.js"></script>
+<script src="js/db.js"></script>
 <script src="js/auth.js"></script>
 <script>
-  if (getCurrentUser()) window.location.href = 'dashboard.html';
+(async () => {
+  // Jika sudah login, langsung redirect
+  const session = await sbGetSession();
+  if (session) window.location.href = 'dashboard.html';
+})();
 
-  function doLogin() {
-    const u = document.getElementById('username').value.trim();
-    const p = document.getElementById('password').value;
-    const user = login(u, p);
-    if (user) {
-      window.location.href = 'dashboard.html';
-    } else {
-      const err = document.getElementById('loginError');
-      err.style.display = 'block';
-      setTimeout(() => err.style.display = 'none', 3000);
-    }
+async function doLogin() {
+  const email    = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+  const errEl    = document.getElementById('loginError');
+  const btn      = document.getElementById('btnLogin');
+
+  if (!email || !password) {
+    showErr('Email dan password harus diisi.'); return;
   }
 
-  function quickLogin(username) {
-    document.getElementById('username').value = username;
-    document.getElementById('password').value = 'password123';
-    doLogin();
-  }
+  btn.textContent = 'Masuk...'; btn.disabled = true;
+  errEl.style.display = 'none';
 
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Enter') doLogin();
-  });
+  try {
+    await sbLogin(email, password);
+    window.location.href = 'dashboard.html';
+  } catch(e) {
+    showErr('Email atau password salah. Silakan coba lagi.');
+    btn.textContent = 'Masuk'; btn.disabled = false;
+  }
+}
+
+function showErr(msg) {
+  const el = document.getElementById('loginError');
+  el.textContent = msg; el.style.display = 'block';
+}
+
+function quick(email) {
+  document.getElementById('email').value = email;
+  document.getElementById('password').value = 'password123';
+  doLogin();
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
 </script>
 </body>
 </html>

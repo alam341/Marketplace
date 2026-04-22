@@ -6,6 +6,7 @@
 <title>Transaction — MarketDash</title>
 <link rel="stylesheet" href="css/main.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -20,27 +21,28 @@
     </div>
   </div>
 </div>
-<script src="js/data.js"></script>
+<script src="js/config.js"></script>
+<script src="js/db.js"></script>
 <script src="js/auth.js"></script>
 <script src="js/app.js"></script>
 <script src="js/upload.js"></script>
 <script>
-const user = requireAuth();
-let mpChart, statusChart;
+let _user, _profiles = [], _baseTrx = [], _mpChart, _statusChart;
 let _tSearch='', _tMp='', _tStatus='', _tAdv='';
 
-if (user) {
-  renderLayout('transaction', user);
+(async () => {
+  _user = await requireAuth();
+  if (!_user) return;
+  _profiles = await dbGetAllProfiles().catch(() => []);
+  _user._color = _user.role === 'spv' ? '#EF233C' : assignUserColor(_profiles, _user.id);
+  renderLayout('transaction', _user);
   renderDateFilter('dateFilterContainer', 'refreshPage');
-  buildPage();
-}
 
-function buildPage() {
-  const isSPV = user.role === 'spv';
+  const isSPV = _user.role === 'spv';
   document.getElementById('pageContent').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:12px">
       <div><h2 style="font-weight:800">Transaction</h2><div style="color:var(--text-3);font-size:.85rem">Riwayat transaksi marketplace</div></div>
-      <button class="btn btn-primary" onclick="exportTrxCSV()">⬇ Export CSV</button>
+      <button class="btn btn-primary" onclick="exportCSV()">⬇ Export CSV</button>
     </div>
     <div class="stat-grid" id="trxStats" style="margin-bottom:18px"></div>
     <div class="two-col" style="margin-bottom:18px">
@@ -56,134 +58,107 @@ function buildPage() {
     <div class="card">
       <div class="card-header"><div class="card-header-left"><h3>Semua Transaksi</h3></div></div>
       <div class="controls">
-        <input type="text" class="ctrl-input" placeholder="🔍 ID / produk / SKU..." oninput="_tSearch=this.value;renderTrxTable()" style="min-width:180px">
-        <select class="ctrl-select" onchange="_tMp=this.value;renderTrxTable()">
+        <input type="text" class="ctrl-input" placeholder="🔍 ID / produk / SKU..." oninput="_tSearch=this.value;renderTable()" style="min-width:170px">
+        <select class="ctrl-select" onchange="_tMp=this.value;renderTable()">
           <option value="">Semua Marketplace</option>
           <option value="shopee">Shopee</option>
           <option value="lazada">Lazada</option>
           <option value="tiktok">TikTok</option>
         </select>
-        <select class="ctrl-select" onchange="_tStatus=this.value;renderTrxTable()">
+        <select class="ctrl-select" onchange="_tStatus=this.value;renderTable()">
           <option value="">Semua Status</option>
           <option value="selesai">Selesai</option>
           <option value="diproses">Diproses</option>
           <option value="dibatalkan">Dibatalkan</option>
         </select>
         ${isSPV ? `
-        <select class="ctrl-select" onchange="_tAdv=this.value;renderTrxTable()">
+        <select class="ctrl-select" onchange="_tAdv=this.value;renderTable()">
           <option value="">Semua ADV</option>
-          ${['adv1','adv2','adv3','adv4'].map(id=>`<option value="${id}">${getUser(id).name.split(' ')[0]}</option>`).join('')}
+          ${_profiles.map(p=>`<option value="${p.id}">${p.name.split(' ')[0]}</option>`).join('')}
         </select>` : ''}
       </div>
       <div class="table-wrap">
         <table>
           <thead><tr>
-            <th>ID Transaksi</th>
-            ${isSPV ? '<th>ADV</th>' : ''}
+            <th>ID Transaksi</th>${isSPV?'<th>ADV</th>':''}
             <th>Produk</th><th>Marketplace</th><th>Tanggal</th><th>Qty</th><th>Total Omset</th><th>Status</th>
           </tr></thead>
-          <tbody id="trxTableBody"></tbody>
+          <tbody id="trxTable"></tbody>
         </table>
       </div>
       <div style="margin-top:10px;font-size:.8rem;color:var(--text-3)" id="trxInfo"></div>
     </div>
   `;
-  refreshPage();
+
+  await refreshPage();
+
+  // Real-time updates
+  subscribeTransactions(async () => {
+    showToast('Ada transaksi baru!', 'info');
+    await refreshPage();
+  });
+})();
+
+async function refreshPage() {
+  const { from, to } = window._dateFilter;
+  const filters = { dateFrom: from, dateTo: to };
+  if (_user.role !== 'spv') filters.advId = _user.id;
+
+  try {
+    _baseTrx = await dbGetTransactions(filters);
+    const isSPV = _user.role === 'spv';
+    const valid = _baseTrx.filter(t=>t.status!=='dibatalkan');
+    const stats  = calcStats(_baseTrx);
+
+    document.getElementById('trxStats').innerHTML = `
+      <div class="stat-card primary"><div class="stat-label">Total Omset</div><div class="stat-value">${fmt(stats.totalOmset)}</div><div class="stat-sub">Transaksi berhasil</div><div class="stat-icon">💰</div></div>
+      <div class="stat-card"><div class="stat-label">Total Order</div><div class="stat-value">${stats.totalOrders}</div><div class="stat-sub">Selesai + diproses</div><div class="stat-icon">📋</div></div>
+      <div class="stat-card"><div class="stat-label">Total Qty</div><div class="stat-value">${stats.totalQty.toLocaleString('id-ID')}</div><div class="stat-sub">Unit terjual</div><div class="stat-icon">📦</div></div>
+      <div class="stat-card"><div class="stat-label">Dibatalkan</div><div class="stat-value" style="color:var(--danger)">${stats.cancelled}</div><div class="stat-sub">Order batal</div><div class="stat-icon">❌</div></div>
+    `;
+
+    const mpO = { shopee:0, lazada:0, tiktok:0 };
+    valid.forEach(t => { if (mpO[t.marketplace]!==undefined) mpO[t.marketplace]+=t.qty*t.price; });
+    const sc = { selesai:0, diproses:0, dibatalkan:0 };
+    _baseTrx.forEach(t => { if(sc[t.status]!==undefined) sc[t.status]++; });
+
+    const gc = chartGridColor(), tc = chartTextColor();
+    if (_mpChart) _mpChart.destroy();
+    _mpChart = new Chart(document.getElementById('mpChart'), {
+      type:'bar',
+      data:{ labels:['Shopee','Lazada','TikTok'], datasets:[{ data:[mpO.shopee,mpO.lazada,mpO.tiktok],
+        backgroundColor:['#EE4D2D','#0F146D','#888'], borderRadius:8, borderSkipped:false }] },
+      options:{ responsive:true, maintainAspectRatio:false,
+        plugins:{legend:{display:false}},
+        scales:{ x:{grid:{display:false},ticks:{color:tc}}, y:{grid:{color:gc},ticks:{color:tc,callback:v=>fmt(v)}} } }
+    });
+
+    if (_statusChart) _statusChart.destroy();
+    _statusChart = new Chart(document.getElementById('statusChart'), {
+      type:'doughnut',
+      data:{ labels:['Selesai','Diproses','Dibatalkan'],
+        datasets:[{ data:[sc.selesai,sc.diproses,sc.dibatalkan],
+          backgroundColor:['#06C270','#FFB703','#EF233C'],
+          borderWidth:3, borderColor:isDark()?'#1E293B':'#fff', hoverOffset:6 }] },
+      options:{ responsive:true, maintainAspectRatio:false, cutout:'60%',
+        plugins:{ legend:{ position:'bottom', labels:{font:{size:11},color:tc} } } }
+    });
+
+    renderTable();
+  } catch(e) {
+    showError('Gagal memuat data: ' + e.message);
+  }
 }
 
-function refreshPage() {
-  const isSPV = user.role === 'spv';
-  const baseTrx = filterTrxByDate(TRANSACTIONS).filter(t => isSPV || t.adv === user.id);
-  window._baseTrx = baseTrx;
-  window._isSPV = isSPV;
+function renderTable() {
+  const isSPV = _user.role === 'spv';
+  let list = [..._baseTrx];
+  if (_tSearch) list = list.filter(t => [t.id,t.product,t.sku].some(v=>String(v).toLowerCase().includes(_tSearch.toLowerCase())));
+  if (_tMp)     list = list.filter(t => t.marketplace === _tMp);
+  if (_tStatus) list = list.filter(t => t.status === _tStatus);
+  if (_tAdv)    list = list.filter(t => t.adv_id === _tAdv);
 
-  // Stats
-  const valid = baseTrx.filter(t=>t.status!=='dibatalkan');
-  const totalOmset = valid.reduce((s,t)=>s+t.qty*t.price,0);
-  const totalQty   = valid.reduce((s,t)=>s+t.qty,0);
-
-  document.getElementById('trxStats').innerHTML = `
-    <div class="stat-card primary">
-      <div class="stat-label">Total Omset Periode</div>
-      <div class="stat-value">${fmt(totalOmset)}</div>
-      <div class="stat-sub">Transaksi berhasil</div>
-      <div class="stat-icon">💰</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Total Order</div>
-      <div class="stat-value">${valid.length}</div>
-      <div class="stat-sub">Selesai + diproses</div>
-      <div class="stat-icon">📋</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Total Qty</div>
-      <div class="stat-value">${totalQty.toLocaleString('id-ID')}</div>
-      <div class="stat-sub">Unit terjual</div>
-      <div class="stat-icon">📦</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Dibatalkan</div>
-      <div class="stat-value" style="color:var(--danger)">${baseTrx.filter(t=>t.status==='dibatalkan').length}</div>
-      <div class="stat-sub">Order batal</div>
-      <div class="stat-icon">❌</div>
-    </div>
-  `;
-
-  // Charts
-  const mpOmset = { shopee:0, lazada:0, tiktok:0 };
-  valid.forEach(t => { if (mpOmset[t.marketplace] !== undefined) mpOmset[t.marketplace] += t.qty*t.price; });
-  const sc = { selesai:0, diproses:0, dibatalkan:0 };
-  baseTrx.forEach(t => { if (sc[t.status] !== undefined) sc[t.status]++; });
-
-  const gc = chartGridColor(), tc = chartTextColor();
-
-  if (mpChart) mpChart.destroy();
-  mpChart = new Chart(document.getElementById('mpChart'), {
-    type: 'bar',
-    data: {
-      labels:['Shopee','Lazada','TikTok'],
-      datasets:[{ data:[mpOmset.shopee,mpOmset.lazada,mpOmset.tiktok],
-        backgroundColor:['#EE4D2D','#0F146D','#888'],
-        borderRadius:8, borderSkipped:false }]
-    },
-    options:{
-      responsive:true, maintainAspectRatio:false,
-      plugins:{legend:{display:false}},
-      scales:{
-        x:{grid:{display:false},ticks:{color:tc}},
-        y:{grid:{color:gc},ticks:{color:tc,callback:v=>fmt(v)}}
-      }
-    }
-  });
-
-  if (statusChart) statusChart.destroy();
-  statusChart = new Chart(document.getElementById('statusChart'), {
-    type:'doughnut',
-    data:{
-      labels:['Selesai','Diproses','Dibatalkan'],
-      datasets:[{ data:[sc.selesai,sc.diproses,sc.dibatalkan],
-        backgroundColor:['#06C270','#FFB703','#EF233C'],
-        borderWidth:3, borderColor:isDark()?'#1E293B':'#fff', hoverOffset:6 }]
-    },
-    options:{
-      responsive:true, maintainAspectRatio:false, cutout:'60%',
-      plugins:{ legend:{ position:'bottom', labels:{font:{size:11},color:tc} } }
-    }
-  });
-
-  renderTrxTable();
-}
-
-function renderTrxTable() {
-  const isSPV = window._isSPV;
-  let list = window._baseTrx || [];
-
-  if (_tSearch)  list = list.filter(t => [t.id,t.product,t.sku].some(v=>v.toLowerCase().includes(_tSearch.toLowerCase())));
-  if (_tMp)      list = list.filter(t => t.marketplace === _tMp);
-  if (_tStatus)  list = list.filter(t => t.status === _tStatus);
-  if (_tAdv)     list = list.filter(t => t.adv === _tAdv);
-
-  const body = document.getElementById('trxTableBody');
+  const body = document.getElementById('trxTable');
   if (!list.length) {
     body.innerHTML = `<tr><td colspan="${isSPV?8:7}" class="empty"><div class="icon">🔍</div>Tidak ada transaksi</td></tr>`;
     document.getElementById('trxInfo').textContent = '';
@@ -191,17 +166,15 @@ function renderTrxTable() {
   }
 
   body.innerHTML = list.map(t => {
-    const advUser = getUser(t.adv);
+    const p = t.profiles || {};
+    const color = assignUserColor(_profiles, t.adv_id);
     return `<tr>
-      <td style="font-family:monospace;font-size:.75rem;color:var(--text-3)">${t.id}</td>
-      ${isSPV ? `<td><div style="display:flex;align-items:center;gap:6px">
-        <div class="user-avatar sm" style="background:${ADV_COLORS[t.adv]||'#4361EE'};font-size:.65rem">${advUser?.avatar||'?'}</div>
-        <span style="font-size:.82rem">${advUser?.name.split(' ')[0]||'-'}</span>
-      </div></td>` : ''}
-      <td>
-        <div style="font-weight:600">${t.product}</div>
-        <div style="font-size:.72rem;color:var(--text-3)">${t.sku}</div>
-      </td>
+      <td style="font-family:monospace;font-size:.73rem;color:var(--text-3)">${t.id}</td>
+      ${isSPV?`<td><div style="display:flex;align-items:center;gap:6px">
+        <div class="user-avatar sm" style="background:${color};font-size:.65rem">${p.avatar||'?'}</div>
+        <span style="font-size:.82rem">${p.name?.split(' ')[0]||'-'}</span>
+      </div></td>`:''}
+      <td><div style="font-weight:600">${t.product||'-'}</div><div style="font-size:.72rem;color:var(--text-3)">${t.sku}</div></td>
       <td>${badgeMarketplace(t.marketplace)}</td>
       <td style="color:var(--text-3);font-size:.82rem;white-space:nowrap">${t.date}</td>
       <td style="font-weight:700">${t.qty}</td>
@@ -211,24 +184,21 @@ function renderTrxTable() {
   }).join('');
 
   const totalOmset = list.filter(t=>t.status!=='dibatalkan').reduce((s,t)=>s+t.qty*t.price,0);
-  document.getElementById('trxInfo').textContent =
-    `Menampilkan ${list.length} transaksi · Total omset: ${fmtFull(totalOmset)}`;
-
+  document.getElementById('trxInfo').textContent = `Menampilkan ${list.length} transaksi · Omset: ${fmtFull(totalOmset)}`;
   window._filteredTrx = list;
 }
 
-function exportTrxCSV() {
-  const list = window._filteredTrx || window._baseTrx || [];
-  const rows = [['ID','ADV','Produk','SKU','Marketplace','Tanggal','Qty','Total Omset','Status']];
+function exportCSV() {
+  const list = window._filteredTrx || _baseTrx;
+  const isSPV = _user.role === 'spv';
+  const rows = [['ID','ADV','Produk','SKU','Marketplace','Tanggal','Qty','Total','Status']];
   list.forEach(t => {
-    const u = getUser(t.adv);
-    rows.push([t.id, u?.name||t.adv, t.product, t.sku, t.marketplace, t.date, t.qty, t.qty*t.price, t.status]);
+    const p = t.profiles || {};
+    rows.push([t.id, p.name||'-', t.product, t.sku, t.marketplace, t.date, t.qty, t.qty*t.price, t.status]);
   });
-  const csv = rows.map(r=>r.map(v=>`"${v}"`).join(',')).join('\n');
   const a = document.createElement('a');
-  a.href = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent(csv);
-  a.download = 'transaksi.csv';
-  a.click();
+  a.href = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent(rows.map(r=>r.map(v=>`"${v}"`).join(',')).join('\n'));
+  a.download = 'transaksi.csv'; a.click();
 }
 </script>
 </body>
