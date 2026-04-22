@@ -71,7 +71,26 @@ function _detectMarketplace(headers) {
 // ── Parse price string → integer ──────────────────────────────────────────────
 function _parsePrice(val) {
   if (!val && val !== 0) return 0;
-  return Math.round(parseFloat(String(val).replace(/[^0-9.,]/g, '').replace(',', '.').replace(/\.(?=.*\.)/g, '')) || 0);
+  // Kalau sudah angka murni (dari Excel cell numeric)
+  if (typeof val === 'number') return Math.round(val);
+
+  let s = String(val).replace(/[^0-9.,]/g, '');
+  if (!s) return 0;
+
+  // Format Indonesia: titik = ribuan, koma = desimal → "250.000" atau "1.250.000,50"
+  if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) {
+    s = s.replace(/\./g, '').replace(',', '.');
+  }
+  // Format koma = desimal tanpa ribuan → "250,50"
+  else if (/^\d+,\d{1,2}$/.test(s)) {
+    s = s.replace(',', '.');
+  }
+  // Format standar, buang koma
+  else {
+    s = s.replace(',', '');
+  }
+
+  return Math.round(parseFloat(s) || 0);
 }
 
 function _parseQty(val) {
