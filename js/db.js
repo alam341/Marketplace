@@ -124,6 +124,23 @@ async function dbGetAllMarketplaceOrders(filters = {}) {
   return all.sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
+// ── Profile Update ────────────────────────────────────────────────────────────
+async function dbUpdateProfile(updates) {
+  const session = await sbGetSession();
+  const { error } = await _sb.from('profiles').update(updates).eq('id', session.user.id);
+  if (error) throw error;
+}
+
+async function dbUploadAvatar(file) {
+  const session = await sbGetSession();
+  const ext = file.name.split('.').pop();
+  const path = `${session.user.id}/avatar.${ext}`;
+  const { error } = await _sb.storage.from('avatars').upload(path, file, { upsert: true });
+  if (error) throw error;
+  const { data } = _sb.storage.from('avatars').getPublicUrl(path);
+  return data.publicUrl + '?t=' + Date.now();
+}
+
 // ── Products ──────────────────────────────────────────────────────────────────
 async function dbGetProducts(filters = {}) {
   let q = _sb.from('products')

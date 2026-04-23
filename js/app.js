@@ -3,6 +3,7 @@ const PAGES = [
   { id: 'report',      label: 'Report',      icon: '📊', file: 'report.html'      },
   { id: 'product',     label: 'Product',     icon: '📦', file: 'product.html'     },
   { id: 'transaction', label: 'Transaction', icon: '💳', file: 'transaction.html' },
+  { id: 'profile',     label: 'Profil',      icon: '👤', file: 'profile.html'     },
 ];
 
 const ADV_COLORS = ['#4361EE','#7B2FBE','#06C270','#FFB703','#EF233C'];
@@ -51,13 +52,15 @@ function renderLayout(activePage, user) {
           <span>🗑️</span> Kelola Upload
         </button>
         <div class="sidebar-bottom">
-          <div class="user-card">
-            <div class="user-avatar" style="background:${color}">${user.avatar || '?'}</div>
+          <div class="user-card" onclick="location.href='profile.html'" style="cursor:pointer" title="Lihat profil">
+            ${user.avatar_url
+              ? `<div class="user-avatar" style="background:${color};overflow:hidden;padding:0"><img src="${user.avatar_url}" style="width:100%;height:100%;object-fit:cover"></div>`
+              : `<div class="user-avatar" style="background:${color}">${user.avatar || '?'}</div>`}
             <div class="user-info">
               <div class="user-name">${user.name}</div>
               <div class="user-role">${user.title}</div>
             </div>
-            <button class="logout-btn" onclick="logout()" title="Logout">⏻</button>
+            <button class="logout-btn" onclick="event.stopPropagation();logout()" title="Logout">⏻</button>
           </div>
         </div>
       </div>
@@ -83,8 +86,10 @@ function renderLayout(activePage, user) {
         </button>
         <button class="icon-btn">🔔<span class="notif-dot"></span></button>
         <div class="divider-v"></div>
-        <div class="topbar-user">
-          <div class="user-avatar sm" style="background:${color}">${user.avatar || '?'}</div>
+        <div class="topbar-user" onclick="location.href='profile.html'" style="cursor:pointer">
+          ${user.avatar_url
+            ? `<div class="user-avatar sm" style="background:${color};overflow:hidden;padding:0"><img src="${user.avatar_url}" style="width:100%;height:100%;object-fit:cover"></div>`
+            : `<div class="user-avatar sm" style="background:${color}">${user.avatar || '?'}</div>`}
           <div>
             <div class="topbar-name">${user.name}</div>
             <div class="topbar-role">${user.title}</div>
@@ -206,4 +211,17 @@ function showToast(msg, type = 'success') {
 function assignUserColor(profiles, userId) {
   const idx = profiles.findIndex(p => p.id === userId);
   return ADV_COLORS[idx >= 0 ? idx % ADV_COLORS.length : 0];
+}
+
+// Render avatar — support foto URL atau emoji/teks
+function renderAvatar(user, size = 'md', color = '') {
+  const bg = color || '#4361EE';
+  const sz = size === 'sm' ? '28px' : size === 'lg' ? '44px' : '36px';
+  const fs = size === 'sm' ? '.65rem' : size === 'lg' ? '1.1rem' : '.85rem';
+  const style = `width:${sz};height:${sz};border-radius:50%;overflow:hidden;flex-shrink:0;
+    background:${bg};display:flex;align-items:center;justify-content:center;font-size:${fs};`;
+  if (user?.avatar_url) {
+    return `<div style="${style}"><img src="${user.avatar_url}" style="width:100%;height:100%;object-fit:cover"></div>`;
+  }
+  return `<div style="${style}">${user?.avatar || '?'}</div>`;
 }
