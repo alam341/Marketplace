@@ -66,25 +66,41 @@ async function dbUpdateTransactionStatus(id, status) {
   if (error) throw error;
 }
 
-async function dbBulkInsertMarketplaceOrders(marketplace, rows, storeName = '') {
+async function dbBulkInsertMarketplaceOrders(marketplace, rows, storeName = '', batchId = null) {
   const session = await sbGetSession();
   const table = marketplace + '_orders';
   const inserts = rows.map(r => ({
-    id:         r.id,
-    date:       r.date,
-    sku:        r.sku,
-    product:    r.product,
-    qty:        r.qty,
-    unit_price: r.unit_price,
-    total:      r.total,
-    status:     r.status,
-    store_name: storeName,
-    order_hour: r.order_hour ?? null,
-    adv_id:     session.user.id,
+    id:              r.id,
+    date:            r.date,
+    sku:             r.sku,
+    product:         r.product,
+    qty:             r.qty,
+    unit_price:      r.unit_price,
+    total:           r.total,
+    status:          r.status,
+    store_name:      storeName,
+    order_hour:      r.order_hour ?? null,
+    upload_batch_id: batchId,
+    adv_id:          session.user.id,
   }));
   const { data, error } = await _sb.from(table).insert(inserts).select();
   if (error) throw error;
   return data;
+}
+
+async function dbGetUploadBatches() {
+  const { data, error } = await _sb.from('upload_batches')
+    .select('*, profiles(id, name, avatar)')
+    .order('uploaded_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+async function dbDeleteUploadBatch(batchId, marketplace) {
+  const { error: e1 } = await _sb.from(marketplace + '_orders').delete().eq('upload_batch_id', batchId);
+  if (e1) throw e1;
+  const { error: e2 } = await _sb.from('upload_batches').delete().eq('id', batchId);
+  if (e2) throw e2;
 }
 
 async function dbGetAllMarketplaceOrders(filters = {}) {

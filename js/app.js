@@ -47,6 +47,9 @@ function renderLayout(activePage, user) {
         <button class="import-btn" onclick="openUploadModal()">
           <span>📥</span> Import Data Excel
         </button>
+        <button class="import-btn" onclick="openManageModal()" style="margin-top:8px;background:rgba(239,35,60,.08);color:var(--danger,#EF233C)">
+          <span>🗑️</span> Kelola Upload
+        </button>
         <div class="sidebar-bottom">
           <div class="user-card">
             <div class="user-avatar" style="background:${color}">${user.avatar || '?'}</div>

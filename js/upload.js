@@ -367,7 +367,20 @@ async function _applyData() {
   if (btn) { btn.textContent = 'Menyimpan...'; btn.disabled = true; }
 
   try {
-    await dbBulkInsertMarketplaceOrders(_detectedMarketplace, _parsedRows, _storeName);
+    const session = await sbGetSession();
+    const batchId = 'BATCH-' + _detectedMarketplace.toUpperCase() + '-' + Date.now();
+
+    // Simpan record batch dulu
+    const { error: bErr } = await _sb.from('upload_batches').insert({
+      id:           batchId,
+      marketplace:  _detectedMarketplace,
+      store_name:   _storeName,
+      adv_id:       session.user.id,
+      record_count: _parsedRows.length,
+    });
+    if (bErr) throw bErr;
+
+    await dbBulkInsertMarketplaceOrders(_detectedMarketplace, _parsedRows, _storeName, batchId);
     closeUploadModal();
     showToast(`✅ ${_parsedRows.length} data ${MP_CONFIG[_detectedMarketplace].label} berhasil disimpan!`, 'success');
     if (typeof refreshPage === 'function') await refreshPage();
@@ -406,4 +419,108 @@ function injectUploadModal() {
   document.body.appendChild(el);
 }
 
-document.addEventListener('DOMContentLoaded', () => { injectUploadModal(); });
+document.addEventListener('DOMContentLoaded', () => { injectUploadModal(); injectManageModal(); });
+
+// ── Manage Uploads Modal ───────────────────────────────────────────────────────
+function injectManageModal() {
+  if (document.getElementById('manageModalOverlay')) return;
+  const el = document.createElement('div');
+  el.id = 'manageModalOverlay';
+  el.className = 'modal-overlay';
+  el.innerHTML = `
+    <div class="modal" style="max-width:640px">
+      <div class="modal-header">
+        <h3>🗂️ Kelola Upload</h3>
+        <button class="modal-close" onclick="closeManageModal()">✕</button>
+      </div>
+      <div class="modal-body" id="manageModalBody">
+        <div class="page-loading"><div class="spinner"></div></div>
+      </div>
+    </div>
+  `;
+  el.addEventListener('click', e => { if (e.target === el) closeManageModal(); });
+  document.body.appendChild(el);
+}
+
+function openManageModal() {
+  document.getElementById('manageModalOverlay').classList.add('open');
+  _loadManageBatches();
+}
+
+function closeManageModal() {
+  document.getElementById('manageModalOverlay').classList.remove('open');
+}
+
+async function _loadManageBatches() {
+  const body = document.getElementById('manageModalBody');
+  body.innerHTML = `<div class="page-loading"><div class="spinner"></div><div>Memuat data...</div></div>`;
+  try {
+    const batches = await dbGetUploadBatches();
+    if (!batches.length) {
+      body.innerHTML = `<div class="page-loading"><div style="font-size:2rem">📭</div><div>Belum ada data upload</div></div>`;
+      return;
+    }
+
+    const mpColor = { shopee:'#EE4D2D', tiktok:'#888', lazada:'#0F146D' };
+    body.innerHTML = `
+      <p style="font-size:.82rem;color:var(--text-3);margin-bottom:12px">Klik Hapus untuk menghapus semua data dalam satu file upload.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Marketplace</th><th>Toko</th><th>Upload Oleh</th><th>Tanggal Upload</th><th>Jumlah Data</th><th></th></tr></thead>
+          <tbody>
+            ${batches.map(b => {
+              const p = b.profiles || {};
+              const d = new Date(b.uploaded_at);
+              const tgl = d.toLocaleDateString('id-ID', { day:'numeric', month:'short', year:'numeric' });
+              const jam = d.toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit' });
+              return `<tr>
+                <td><span class="badge" style="background:${mpColor[b.marketplace]||'#888'}20;color:${mpColor[b.marketplace]||'#888'};font-weight:700;font-size:.75rem;padding:3px 8px;border-radius:6px">${b.marketplace.toUpperCase()}</span></td>
+                <td style="font-weight:600">${b.store_name||'-'}</td>
+                <td style="font-size:.8rem;color:var(--text-3)">${p.name?.split(' ')[0]||'-'}</td>
+                <td style="font-size:.78rem;color:var(--text-3)">${tgl}<br>${jam}</td>
+                <td style="font-weight:700;text-align:center">${b.record_count}</td>
+                <td><button class="btn btn-sm" style="background:#FEE2E2;color:#EF233C;border:none;cursor:pointer;border-radius:8px;padding:5px 12px;font-weight:700;font-size:.78rem"
+                  onclick="_confirmDeleteBatch('${b.id}','${b.marketplace}','${b.store_name||''}',${b.record_count})">Hapus</button></td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  } catch(e) {
+    body.innerHTML = `<div style="color:var(--danger);padding:20px">Gagal memuat: ${e.message}</div>`;
+  }
+}
+
+function _confirmDeleteBatch(batchId, marketplace, storeName, count) {
+  const body = document.getElementById('manageModalBody');
+  body.innerHTML = `
+    <div style="text-align:center;padding:24px 0">
+      <div style="font-size:2.5rem;margin-bottom:12px">⚠️</div>
+      <div style="font-weight:800;font-size:1rem;margin-bottom:8px">Hapus upload ini?</div>
+      <div style="color:var(--text-3);font-size:.85rem;margin-bottom:4px">
+        <strong>${marketplace.toUpperCase()}</strong> · ${storeName || '-'}
+      </div>
+      <div style="color:var(--danger);font-weight:700;font-size:.9rem;margin-bottom:24px">${count} data akan dihapus permanen</div>
+      <div style="display:flex;gap:10px;justify-content:center">
+        <button class="btn btn-outline btn-sm" onclick="_loadManageBatches()">Batal</button>
+        <button class="btn btn-sm" style="background:#EF233C;color:white;border:none;cursor:pointer;border-radius:10px;padding:8px 20px;font-weight:700"
+          id="btnConfirmDelete" onclick="_doDeleteBatch('${batchId}','${marketplace}')">Ya, Hapus Semua</button>
+      </div>
+    </div>
+  `;
+}
+
+async function _doDeleteBatch(batchId, marketplace) {
+  const btn = document.getElementById('btnConfirmDelete');
+  if (btn) { btn.textContent = 'Menghapus...'; btn.disabled = true; }
+  try {
+    await dbDeleteUploadBatch(batchId, marketplace);
+    showToast('✅ Data berhasil dihapus', 'success');
+    await _loadManageBatches();
+    if (typeof refreshPage === 'function') await refreshPage();
+  } catch(e) {
+    showToast('❌ Gagal hapus: ' + e.message, 'error');
+    await _loadManageBatches();
+  }
+}
