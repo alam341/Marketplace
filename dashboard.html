@@ -27,7 +27,7 @@
 <script src="js/app.js"></script>
 <script src="js/upload.js"></script>
 <script>
-let _user, _profiles = [], _revChart, _donutChart, _teamChart;
+let _user, _profiles = [], _revChart, _donutChart, _teamChart, _peakChart;
 
 (async () => {
   _user = await requireAuth();
@@ -47,18 +47,41 @@ async function refreshPage() {
     const { from, to } = window._dateFilter;
     const filters = { dateFrom: from, dateTo: to };
     if (_user.role !== 'spv') filters.advId = _user.id;
-    const trx = await dbGetAllMarketplaceOrders(filters);
-    const myTrx = trx;
 
-    renderDashboard(myTrx);
+    // Hitung periode sebelumnya (durasi sama, mundur)
+    const dFrom = new Date(from), dTo = new Date(to);
+    const duration = Math.round((dTo - dFrom) / (1000*60*60*24));
+    const prevTo   = new Date(dFrom); prevTo.setDate(prevTo.getDate() - 1);
+    const prevFrom = new Date(prevTo); prevFrom.setDate(prevFrom.getDate() - duration);
+    const prevFilters = {
+      dateFrom: prevFrom.toISOString().slice(0,10),
+      dateTo:   prevTo.toISOString().slice(0,10),
+      ...(_user.role !== 'spv' ? { advId: _user.id } : {})
+    };
+
+    const [trx, prevTrx] = await Promise.all([
+      dbGetAllMarketplaceOrders(filters),
+      dbGetAllMarketplaceOrders(prevFilters),
+    ]);
+
+    renderDashboard(trx, prevTrx);
   } catch(e) {
     showError('Gagal memuat data: ' + e.message);
   }
 }
 
-function renderDashboard(trx) {
+function renderDashboard(trx, prevTrx = []) {
   const isSPV = _user.role === 'spv';
   const stats  = calcStats(trx);
+  const prev   = calcStats(prevTrx);
+
+  function growth(cur, old) {
+    if (!old) return null;
+    return ((cur - old) / old * 100).toFixed(1);
+  }
+  const gOmset = growth(stats.totalOmset, prev.totalOmset);
+  const gOrder = growth(stats.totalOrders, prev.totalOrders);
+  const gQty   = growth(stats.totalQty, prev.totalQty);
   const monthly = calcMonthlyRevenue(trx);
 
   const months  = Object.keys(monthly).sort();
@@ -122,25 +145,25 @@ function renderDashboard(trx) {
       <div class="stat-card primary">
         <div class="stat-label">Total Omset Periode</div>
         <div class="stat-value" style="font-size:1.1rem">${fmtFull(stats.totalOmset)}</div>
-        <div class="stat-sub">${stats.totalOrders} order berhasil</div>
+        <div class="stat-sub">${gOmset !== null ? growthBadge(gOmset) + ' vs periode lalu' : stats.totalOrders + ' order berhasil'}</div>
         <div class="stat-icon">💰</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Total Order</div>
         <div class="stat-value">${stats.totalOrders}</div>
-        <div class="stat-sub">Transaksi berhasil</div>
+        <div class="stat-sub">${gOrder !== null ? growthBadge(gOrder) + ' vs periode lalu' : 'Transaksi berhasil'}</div>
         <div class="stat-icon">📋</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">${isSPV ? 'Total ADV Tim' : 'Total Qty Terjual'}</div>
         <div class="stat-value">${isSPV ? _profiles.length : stats.totalQty.toLocaleString('id-ID')}</div>
-        <div class="stat-sub">${isSPV ? 'Anggota aktif' : 'Unit produk'}</div>
+        <div class="stat-sub">${!isSPV && gQty !== null ? growthBadge(gQty) + ' vs periode lalu' : (isSPV ? 'Anggota aktif' : 'Unit produk')}</div>
         <div class="stat-icon">${isSPV ? '👥' : '📦'}</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Dibatalkan</div>
         <div class="stat-value" style="color:var(--danger)">${stats.cancelled}</div>
-        <div class="stat-sub">Order batal</div>
+        <div class="stat-sub">Order batal periode ini</div>
         <div class="stat-icon">❌</div>
       </div>
     </div>
@@ -176,7 +199,12 @@ function renderDashboard(trx) {
 
     ${teamSection}
 
-    <div class="card">
+    <div class="card" style="margin-top:18px">
+      <div class="card-header"><div class="card-header-left"><h3>Peak Hour Order</h3><div class="card-sub">Jam paling ramai transaksi (exclude batal)</div></div></div>
+      <div class="chart-container" style="height:200px"><canvas id="peakChart"></canvas></div>
+    </div>
+
+    <div class="card" style="margin-top:18px">
       <div class="card-header">
         <div class="card-header-left"><h3>Transaksi Terbaru</h3><div class="card-sub">${trx.length} transaksi di periode ini</div></div>
         <a href="transaction.html" class="btn btn-outline btn-sm">Lihat Semua</a>
@@ -217,6 +245,7 @@ function renderDashboard(trx) {
   if (_revChart)  _revChart.destroy();
   if (_donutChart) _donutChart.destroy();
   if (_teamChart)  _teamChart.destroy();
+  if (_peakChart)  _peakChart.destroy();
 
   _revChart = new Chart(document.getElementById('revenueChart'), {
     type: 'bar',
@@ -239,6 +268,24 @@ function renderDashboard(trx) {
         borderWidth:3, borderColor:isDark()?'#1E293B':'#fff', hoverOffset:6 }] },
     options:{ responsive:true, maintainAspectRatio:false, cutout:'68%', plugins:{legend:{display:false}} }
   });
+
+  // Peak Hour chart
+  const hourCounts = Array(24).fill(0);
+  const hourLabels = Array.from({length:24}, (_,i) => i.toString().padStart(2,'0') + ':00');
+  trx.filter(t => t.status !== 'dibatalkan' && t.order_hour != null)
+     .forEach(t => { hourCounts[t.order_hour]++; });
+  const peakHour = hourCounts.indexOf(Math.max(...hourCounts));
+  const peakColors = hourCounts.map((_,i) => i === peakHour ? '#4361EE' : 'rgba(67,97,238,.25)');
+  if (document.getElementById('peakChart')) {
+    _peakChart = new Chart(document.getElementById('peakChart'), {
+      type: 'bar',
+      data: { labels: hourLabels, datasets: [{ data: hourCounts, backgroundColor: peakColors, borderRadius: 4, borderSkipped: false }] },
+      options: { responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ctx.raw + ' order' } } },
+        scales: { x: { grid: { display: false }, ticks: { color: tc, font: { size: 10 } } },
+                  y: { grid: { color: gc }, ticks: { color: tc, stepSize: 1 } } } }
+    });
+  }
 
   // Team chart (SPV)
   if (isSPV && document.getElementById('teamChart') && _profiles.length) {
