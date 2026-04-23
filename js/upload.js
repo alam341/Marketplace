@@ -12,7 +12,7 @@ const MP_CONFIG = {
     detect: h => h.some(x => x.includes('no. pesanan') || x.includes('sku induk') || x.includes('nama produk')),
     transposed: false,
     map: {
-      id:         h => _findCol(h, ['no. pesanan']),
+      id:         h => _findCol(h, ['no. resi', 'nomor resi', 'resi', 'nomor lacak']),
       date:       h => _findCol(h, ['waktu pesanan dibuat']),
       sku:        h => _findCol(h, ['nomor referensi sku']),
       product:    h => _findCol(h, ['nama produk']),
@@ -27,7 +27,7 @@ const MP_CONFIG = {
     detect: h => h.some(x => x.includes('order id') || x.includes('seller sku') || x.includes('order status')),
     transposed: false,
     map: {
-      id:         h => _findCol(h, ['order id']),
+      id:         h => _findCol(h, ['tracking id']),
       date:       h => _findCol(h, ['created time']),
       sku:        h => _findCol(h, ['seller sku']),
       product:    h => _findCol(h, ['product name']),
@@ -42,7 +42,7 @@ const MP_CONFIG = {
     detect: h => h.some(x => x.includes('ordernumber') || x.includes('sellersku') || x.includes('itemname')),
     transposed: false,
     map: {
-      id:         h => _findCol(h, ['ordernumber']),
+      id:         h => _findCol(h, ['trackingcode']),
       date:       h => _findCol(h, ['createtime']),
       sku:        h => _findCol(h, ['sellersku']),
       product:    h => _findCol(h, ['itemname']),
@@ -194,7 +194,7 @@ function _parseRows(rows, mp, mapping) {
         marketplace: mp,
       };
     })
-    .filter(r => r.id && r.id.trim() && !r.id.includes(' '));
+    .filter(r => r.id && r.id.trim());
 }
 
 // ── Modal ──────────────────────────────────────────────────────────────────────
@@ -370,7 +370,7 @@ async function _applyData() {
     const session = await sbGetSession();
     const batchId = 'BATCH-' + _detectedMarketplace.toUpperCase() + '-' + Date.now();
 
-    // Simpan record batch dulu
+    // Simpan record batch dulu (record_count sementara, akan diupdate setelah dedup)
     const { error: bErr } = await _sb.from('upload_batches').insert({
       id:           batchId,
       marketplace:  _detectedMarketplace,
@@ -380,9 +380,14 @@ async function _applyData() {
     });
     if (bErr) throw bErr;
 
-    await dbBulkInsertMarketplaceOrders(_detectedMarketplace, _parsedRows, _storeName, batchId);
+    const savedData = await dbBulkInsertMarketplaceOrders(_detectedMarketplace, _parsedRows, _storeName, batchId);
+    const actualCount = savedData?.length ?? _parsedRows.length;
+
+    // Update record_count dengan jumlah order unik yang benar-benar tersimpan
+    await _sb.from('upload_batches').update({ record_count: actualCount }).eq('id', batchId);
+
     closeUploadModal();
-    showToast(`✅ ${_parsedRows.length} data ${MP_CONFIG[_detectedMarketplace].label} berhasil disimpan!`, 'success');
+    showToast(`✅ ${actualCount} data ${MP_CONFIG[_detectedMarketplace].label} berhasil disimpan!`, 'success');
     if (typeof refreshPage === 'function') await refreshPage();
   } catch(e) {
     showToast('❌ Gagal simpan: ' + (e.message || e), 'error');
