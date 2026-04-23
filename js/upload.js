@@ -380,10 +380,16 @@ async function _applyData() {
     });
     if (bErr) throw bErr;
 
-    const savedData = await dbBulkInsertMarketplaceOrders(_detectedMarketplace, _parsedRows, _storeName, batchId);
-    const actualCount = savedData?.length ?? _parsedRows.length;
+    let savedData;
+    try {
+      savedData = await dbBulkInsertMarketplaceOrders(_detectedMarketplace, _parsedRows, _storeName, batchId);
+    } catch(e) {
+      // Gagal simpan order — hapus batch record supaya tidak ada ghost entry
+      await _sb.from('upload_batches').delete().eq('id', batchId);
+      throw e;
+    }
 
-    // Update record_count dengan jumlah order unik yang benar-benar tersimpan
+    const actualCount = savedData?.length ?? _parsedRows.length;
     await _sb.from('upload_batches').update({ record_count: actualCount }).eq('id', batchId);
 
     closeUploadModal();
