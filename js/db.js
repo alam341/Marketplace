@@ -101,11 +101,11 @@ async function dbBulkInsertMarketplaceOrders(marketplace, rows, storeName = '', 
   const newRows = unique.filter(r => !existingIds.has(r.id));
   const skipped = unique.length - newRows.length;
 
-  // Insert hanya yang baru (pure INSERT, tidak perlu UPDATE policy)
+  // Insert dengan ignoreDuplicates — kalau ID sudah ada, lewati saja (DO NOTHING)
   const CHUNK = 500;
   for (let i = 0; i < newRows.length; i += CHUNK) {
     const chunk = newRows.slice(i, i + CHUNK);
-    const { error } = await _sb.from(table).insert(chunk);
+    const { error } = await _sb.from(table).upsert(chunk, { onConflict: 'id', ignoreDuplicates: true });
     if (error) throw error;
   }
 
