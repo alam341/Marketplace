@@ -83,23 +83,16 @@ async function dbBulkInsertMarketplaceOrders(marketplace, rows, storeName = '', 
     upload_batch_id: batchId,
     adv_id:          session.user.id,
   }));
-  // Deduplicate by id — satu order bisa punya banyak SKU (baris),
-  // gabungkan qty + total supaya tidak conflict di upsert
-  const merged = new Map();
-  inserts.forEach(r => {
-    if (merged.has(r.id)) {
-      const ex = merged.get(r.id);
-      ex.qty   += r.qty;
-      ex.total += r.total;
-    } else {
-      merged.set(r.id, { ...r });
-    }
-  });
-  const uniqueInserts = Array.from(merged.values());
-
-  const { data, error } = await _sb.from(table).upsert(uniqueInserts, { onConflict: 'id' }).select();
-  if (error) throw error;
-  return data;
+  // Kirim dalam batch 500 supaya tidak kena limit request Supabase
+  const CHUNK = 500;
+  let allData = [];
+  for (let i = 0; i < inserts.length; i += CHUNK) {
+    const chunk = inserts.slice(i, i + CHUNK);
+    const { data, error } = await _sb.from(table).upsert(chunk, { onConflict: 'id' }).select('id');
+    if (error) throw error;
+    if (data) allData = allData.concat(data);
+  }
+  return allData;
 }
 
 async function dbGetUploadBatches() {
@@ -117,24 +110,39 @@ async function dbDeleteUploadBatch(batchId, marketplace) {
   if (e2) throw e2;
 }
 
-async function dbGetAllMarketplaceOrders(filters = {}) {
-  const tables = ['shopee', 'tiktok', 'lazada'];
-  const queries = tables.map(mp => {
-    let q = _sb.from(mp + '_orders')
+async function _fetchAllRows(table, filters) {
+  const PAGE = 1000;
+  let from = 0, all = [];
+  while (true) {
+    let q = _sb.from(table)
       .select('*, profiles(id, name, avatar, role)')
-      .order('date', { ascending: false });
+      .order('date', { ascending: false })
+      .range(from, from + PAGE - 1);
     if (filters.dateFrom) q = q.gte('date', filters.dateFrom);
     if (filters.dateTo)   q = q.lte('date', filters.dateTo);
     if (filters.status)   q = q.eq('status', filters.status);
     if (filters.advId)    q = q.eq('adv_id', filters.advId);
-    return q.then(({ data }) => (data || []).map(r => ({ ...r, marketplace: mp })));
-  });
+    const { data, error } = await q;
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    all = all.concat(data);
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+  return all;
+}
 
-  const results = await Promise.all(queries);
+async function dbGetAllMarketplaceOrders(filters = {}) {
+  const tables = ['shopee', 'tiktok', 'lazada'];
+  const results = await Promise.all(
+    tables.map(mp =>
+      _fetchAllRows(mp + '_orders', filters)
+        .then(rows => rows.map(r => ({ ...r, marketplace: mp })))
+    )
+  );
+
   const all = results.flat();
-
   if (filters.marketplace) return all.filter(r => r.marketplace === filters.marketplace);
-
   return all.sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
