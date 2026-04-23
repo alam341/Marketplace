@@ -174,5 +174,5 @@ function renderWelcomeBanner(containerId, user) {
       `;
       el.style.opacity = '1';
     }, 400);
-  }, 5000);
+  }, 60000);
 }
