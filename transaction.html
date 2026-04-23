@@ -145,7 +145,7 @@ function renderAll() {
   // Stats from filtered data
   const stats = calcStats(list);
   document.getElementById('trxStats').innerHTML = `
-    <div class="stat-card primary"><div class="stat-label">Total Omset</div><div class="stat-value">${fmt(stats.totalOmset)}</div><div class="stat-sub">Transaksi berhasil</div><div class="stat-icon">💰</div></div>
+    <div class="stat-card primary"><div class="stat-label">Total Omset</div><div class="stat-value" style="font-size:1.1rem">${fmtFull(stats.totalOmset)}</div><div class="stat-sub">Transaksi berhasil</div><div class="stat-icon">💰</div></div>
     <div class="stat-card"><div class="stat-label">Total Order</div><div class="stat-value">${stats.totalOrders}</div><div class="stat-sub">Selesai + diproses</div><div class="stat-icon">📋</div></div>
     <div class="stat-card"><div class="stat-label">Total Qty</div><div class="stat-value">${stats.totalQty.toLocaleString('id-ID')}</div><div class="stat-sub">Unit terjual</div><div class="stat-icon">📦</div></div>
     <div class="stat-card"><div class="stat-label">Dibatalkan</div><div class="stat-value" style="color:var(--danger)">${stats.cancelled}</div><div class="stat-sub">Order batal</div><div class="stat-icon">❌</div></div>
