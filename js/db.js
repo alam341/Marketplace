@@ -83,7 +83,7 @@ async function dbBulkInsertMarketplaceOrders(marketplace, rows, storeName = '', 
     upload_batch_id: batchId,
     adv_id:          session.user.id,
   }));
-  const { data, error } = await _sb.from(table).insert(inserts).select();
+  const { data, error } = await _sb.from(table).upsert(inserts, { onConflict: 'id' }).select();
   if (error) throw error;
   return data;
 }
