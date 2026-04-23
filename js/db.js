@@ -93,9 +93,9 @@ async function dbBulkInsertMarketplaceOrders(marketplace, rows, storeName = '', 
   let allData = [];
   for (let i = 0; i < unique.length; i += CHUNK) {
     const chunk = unique.slice(i, i + CHUNK);
-    const { data, error } = await _sb.from(table).upsert(chunk, { onConflict: 'id' }).select('id');
+    const { error } = await _sb.from(table).upsert(chunk, { onConflict: 'id' });
     if (error) throw error;
-    if (data) allData = allData.concat(data);
+    allData = allData.concat(chunk);
   }
   return allData;
 }
