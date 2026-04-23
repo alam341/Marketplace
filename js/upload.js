@@ -114,6 +114,14 @@ function _parseQty(val) {
   return parseInt(String(val || '1').replace(/[^0-9]/g, '')) || 1;
 }
 
+// Ambil angka dari nama SKU, misal "Prima 4" → 4, "Prima" → 1
+function _skuMultiplier(sku) {
+  const match = String(sku || '').match(/(\d+)/g);
+  if (!match) return 1;
+  // Ambil angka pertama yang ditemukan di SKU
+  return parseInt(match[0]) || 1;
+}
+
 function _parseDate(raw) {
   if (!raw) return new Date().toISOString().slice(0, 10);
   if (!isNaN(raw) && raw > 1000) {
@@ -152,13 +160,16 @@ function _parseRows(rows, mp, mapping) {
     .map((row, i) => {
       const get = col => col ? (row[col] ?? '') : '';
       const status     = _normalizeStatus(get(mapping.status));
-      const qty        = mapping.qty ? _parseQty(get(mapping.qty)) : 1;
+      const skuRaw     = String(get(mapping.sku) || '').trim();
+      const multiplier = _skuMultiplier(skuRaw);
+      const qtyRaw     = mapping.qty ? _parseQty(get(mapping.qty)) : 1;
+      const qty        = qtyRaw * multiplier;
       const unit_price = _parsePrice(get(mapping.unit_price));
       const total      = unit_price;
       return {
         id:         String(get(mapping.id) || ('IMP-' + mp + '-' + i)).trim(),
         date:       _parseDate(get(mapping.date)),
-        sku:        String(get(mapping.sku) || '').trim(),
+        sku:        skuRaw,
         product:    String(get(mapping.product) || '').trim(),
         qty,
         unit_price,
