@@ -108,12 +108,41 @@ function _closeMoodOverlay() {
 function _selectMood(idx) {
   localStorage.setItem(_moodKey(), JSON.stringify({ idx, ts: Date.now() }));
   _closeMoodOverlay();
-  _refreshBannerMsg();
+  _fetchMotivation(idx);
 }
 
 function _skipMood() {
   localStorage.setItem(_moodKey(), JSON.stringify({ idx: -1, ts: Date.now() }));
   _closeMoodOverlay();
+}
+
+async function _fetchMotivation(moodIdx) {
+  const mood = MOODS[moodIdx];
+  if (!mood) return;
+
+  // Ambil nama user dari banner jika ada
+  const nameEl = document.querySelector('#welcomeBanner strong, #welcomeBanner [data-name]');
+  const name = window._welcomeUserName || 'kamu';
+
+  const el = document.getElementById('welcomeMoodMsg');
+  if (el) el.textContent = '✨ Memuat pesan...';
+
+  try {
+    const res = await fetch('/api/motivate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mood: mood.label, name }),
+    });
+    const data = await res.json();
+    if (el) el.textContent = '✨ ' + (data.message || mood.msg);
+
+    // Simpan ke localStorage supaya refresh tidak fetch ulang
+    const saved = JSON.parse(localStorage.getItem(_moodKey()) || '{}');
+    saved.customMsg = data.message;
+    localStorage.setItem(_moodKey(), JSON.stringify(saved));
+  } catch {
+    if (el) el.textContent = '✨ ' + mood.msg;
+  }
 }
 
 function _refreshBannerMsg() {
@@ -130,8 +159,11 @@ function renderWelcomeBanner(containerId, user) {
 
   const greeting = _getGreeting();
   const firstName = (user.name || '').split(' ')[0];
+  window._welcomeUserName = firstName; // simpan untuk API call
+
   const mood = getTodayMood();
-  const moodMsg = (mood && mood.idx >= 0) ? MOODS[mood.idx].msg : 'Semangat berkarya hari ini!';
+  const moodMsg = mood?.customMsg
+    || (mood && mood.idx >= 0 ? MOODS[mood.idx].msg : 'Semangat berkarya hari ini!');
   const animal = ANIMALS[_animalIdx];
 
   container.innerHTML = `
