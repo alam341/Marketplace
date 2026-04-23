@@ -83,11 +83,16 @@ async function dbBulkInsertMarketplaceOrders(marketplace, rows, storeName = '', 
     upload_batch_id: batchId,
     adv_id:          session.user.id,
   }));
+  // Buang duplikat ID dalam batch yang sama (keep last)
+  const seen = new Map();
+  inserts.forEach(r => seen.set(r.id, r));
+  const unique = Array.from(seen.values());
+
   // Kirim dalam batch 500 supaya tidak kena limit request Supabase
   const CHUNK = 500;
   let allData = [];
-  for (let i = 0; i < inserts.length; i += CHUNK) {
-    const chunk = inserts.slice(i, i + CHUNK);
+  for (let i = 0; i < unique.length; i += CHUNK) {
+    const chunk = unique.slice(i, i + CHUNK);
     const { data, error } = await _sb.from(table).upsert(chunk, { onConflict: 'id' }).select('id');
     if (error) throw error;
     if (data) allData = allData.concat(data);
