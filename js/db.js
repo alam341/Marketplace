@@ -83,7 +83,21 @@ async function dbBulkInsertMarketplaceOrders(marketplace, rows, storeName = '', 
     upload_batch_id: batchId,
     adv_id:          session.user.id,
   }));
-  const { data, error } = await _sb.from(table).upsert(inserts, { onConflict: 'id' }).select();
+  // Deduplicate by id — satu order bisa punya banyak SKU (baris),
+  // gabungkan qty + total supaya tidak conflict di upsert
+  const merged = new Map();
+  inserts.forEach(r => {
+    if (merged.has(r.id)) {
+      const ex = merged.get(r.id);
+      ex.qty   += r.qty;
+      ex.total += r.total;
+    } else {
+      merged.set(r.id, { ...r });
+    }
+  });
+  const uniqueInserts = Array.from(merged.values());
+
+  const { data, error } = await _sb.from(table).upsert(uniqueInserts, { onConflict: 'id' }).select();
   if (error) throw error;
   return data;
 }
