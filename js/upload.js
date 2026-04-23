@@ -14,14 +14,13 @@ const MP_CONFIG = {
     map: {
       id:         h => _findCol(h, ['no. pesanan']),
       date:       h => _findCol(h, ['waktu pesanan dibuat']),
-      sku:        h => _findCol(h, ['sku induk']),
+      sku:        h => _findCol(h, ['nomor referensi sku']),
       product:    h => _findCol(h, ['nama produk']),
       qty:        h => _findCol(h, ['jumlah']),
-      unit_price: h => _findCol(h, ['harga setelah diskon']),
-      total:      h => _findCol(h, ['total pembayaran', 'dibayar pembeli']),
+      unit_price: h => _findCol(h, ['harga awal']),
+      total:      h => null, // dihitung: qty * unit_price
       status:     h => _findCol(h, ['status pesanan']),
     },
-    cancelWords: ['batal'],
   },
   tiktok: {
     label: 'TikTok Shop',
@@ -29,15 +28,14 @@ const MP_CONFIG = {
     transposed: false,
     map: {
       id:         h => _findCol(h, ['order id']),
-      date:       h => _findCol(h, ['created time', 'paid time']),
+      date:       h => _findCol(h, ['created time']),
       sku:        h => _findCol(h, ['seller sku']),
       product:    h => _findCol(h, ['product name']),
       qty:        h => _findCol(h, ['quantity']),
       unit_price: h => _findCol(h, ['sku unit original price']),
-      total:      h => _findCol(h, ['order amount', 'sku subtotal after discount']),
+      total:      h => null, // dihitung: qty * unit_price
       status:     h => _findCol(h, ['order status']),
     },
-    cancelWords: ['cancelled', 'canceled', 'cancel'],
   },
   lazada: {
     label: 'Lazada',
@@ -50,10 +48,9 @@ const MP_CONFIG = {
       product:    h => _findCol(h, ['itemname']),
       qty:        h => null, // 1 per row
       unit_price: h => _findCol(h, ['unitprice']),
-      total:      h => _findCol(h, ['paidprice']),
+      total:      h => null, // dihitung: qty * unit_price
       status:     h => _findCol(h, ['status']),
     },
-    cancelWords: ['canceled', 'cancelled', 'failed'],
   },
 };
 
@@ -154,16 +151,19 @@ function _parseRows(rows, mp, mapping) {
   return rows
     .map((row, i) => {
       const get = col => col ? (row[col] ?? '') : '';
-      const status = _normalizeStatus(get(mapping.status));
+      const status     = _normalizeStatus(get(mapping.status));
+      const qty        = mapping.qty ? _parseQty(get(mapping.qty)) : 1;
+      const unit_price = _parsePrice(get(mapping.unit_price));
+      const total      = unit_price;
       return {
         id:         String(get(mapping.id) || ('IMP-' + mp + '-' + i)).trim(),
         date:       _parseDate(get(mapping.date)),
         sku:        String(get(mapping.sku) || '').trim(),
         product:    String(get(mapping.product) || '').trim(),
-        qty:        mapping.qty ? _parseQty(get(mapping.qty)) : 1,
-        unit_price: _parsePrice(get(mapping.unit_price)),
-        total:      _parsePrice(get(mapping.total)),
-        status:     status,
+        qty,
+        unit_price,
+        total,
+        status,
         marketplace: mp,
       };
     })
