@@ -135,12 +135,12 @@ async function uploadPhoto(input) {
     const url = await dbUploadAvatar(file);
     await dbUpdateProfile({ avatar_url: url });
     _user.avatar_url = url;
+    sessionStorage.removeItem('currentUser'); // clear cache supaya halaman lain ikut update
 
-    // Update preview
     document.getElementById('avatarPreview').innerHTML =
       `<img src="${url}" style="width:100%;height:100%;object-fit:cover">`;
     setStatus('uploadStatus', '✅ Foto berhasil diupload!', '#06C270');
-    renderProfilePage(); // re-render to show remove button
+    renderProfilePage();
   } catch(e) {
     setStatus('uploadStatus', '❌ Gagal upload: ' + e.message, 'var(--danger)');
   }
@@ -150,6 +150,7 @@ async function removePhoto() {
   try {
     await dbUpdateProfile({ avatar_url: null });
     _user.avatar_url = null;
+    sessionStorage.removeItem('currentUser');
     renderProfilePage();
     showToast('Foto dihapus', 'info');
   } catch(e) {
@@ -162,6 +163,7 @@ async function pickEmoji(emoji) {
   try {
     await dbUpdateProfile({ avatar: emoji });
     _user.avatar = emoji;
+    sessionStorage.removeItem('currentUser');
     setStatus('emojiStatus', '✅ Avatar diperbarui!', '#06C270');
     renderProfilePage();
   } catch(e) {
