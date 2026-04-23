@@ -109,10 +109,10 @@ async function refreshPage() {
     const grand     = sumShopee + sumLazada + sumTiktok;
 
     document.getElementById('summaryCards').innerHTML = `
-      <div class="stat-card primary"><div class="stat-label">Total Omset</div><div class="stat-value">${fmt(grand)}</div><div class="stat-sub">Semua marketplace</div><div class="stat-icon">💰</div></div>
-      <div class="stat-card"><div class="stat-label">Shopee</div><div class="stat-value">${fmt(sumShopee)}</div><div class="stat-sub" style="color:#EE4D2D">● Shopee</div><div class="stat-icon">🛍️</div></div>
-      <div class="stat-card"><div class="stat-label">Lazada</div><div class="stat-value">${fmt(sumLazada)}</div><div class="stat-sub" style="color:#0F146D">● Lazada</div><div class="stat-icon">🏪</div></div>
-      <div class="stat-card"><div class="stat-label">TikTok Shop</div><div class="stat-value">${fmt(sumTiktok)}</div><div class="stat-sub" style="color:#666">● TikTok</div><div class="stat-icon">🎵</div></div>
+      <div class="stat-card primary"><div class="stat-label">Total Omset</div><div class="stat-value" style="font-size:1.1rem">${fmtFull(grand)}</div><div class="stat-sub">Semua marketplace</div><div class="stat-icon">💰</div></div>
+      <div class="stat-card"><div class="stat-label">Shopee</div><div class="stat-value" style="font-size:1.1rem">${fmtFull(sumShopee)}</div><div class="stat-sub" style="color:#EE4D2D">● Shopee</div><div class="stat-icon">🛍️</div></div>
+      <div class="stat-card"><div class="stat-label">Lazada</div><div class="stat-value" style="font-size:1.1rem">${fmtFull(sumLazada)}</div><div class="stat-sub" style="color:#0F146D">● Lazada</div><div class="stat-icon">🏪</div></div>
+      <div class="stat-card"><div class="stat-label">TikTok Shop</div><div class="stat-value" style="font-size:1.1rem">${fmtFull(sumTiktok)}</div><div class="stat-sub" style="color:#666">● TikTok</div><div class="stat-icon">🎵</div></div>
     `;
 
     document.getElementById('monthlyTbody').innerHTML = months.length
