@@ -88,16 +88,28 @@ async function dbBulkInsertMarketplaceOrders(marketplace, rows, storeName = '', 
   inserts.forEach(r => seen.set(r.id, r));
   const unique = Array.from(seen.values());
 
-  // Kirim dalam batch 500 supaya tidak kena limit request Supabase
-  const CHUNK = 500;
-  let allData = [];
-  for (let i = 0; i < unique.length; i += CHUNK) {
-    const chunk = unique.slice(i, i + CHUNK);
-    const { error } = await _sb.from(table).upsert(chunk, { onConflict: 'id' });
-    if (error) throw error;
-    allData = allData.concat(chunk);
+  // Cek ID mana yang sudah ada di DB (milik ADV ini)
+  const allIds = unique.map(r => r.id);
+  const existingIds = new Set();
+  const CHECK_CHUNK = 500;
+  for (let i = 0; i < allIds.length; i += CHECK_CHUNK) {
+    const chunk = allIds.slice(i, i + CHECK_CHUNK);
+    const { data } = await _sb.from(table).select('id').in('id', chunk);
+    (data || []).forEach(r => existingIds.add(r.id));
   }
-  return allData;
+
+  const newRows = unique.filter(r => !existingIds.has(r.id));
+  const skipped = unique.length - newRows.length;
+
+  // Insert hanya yang baru (pure INSERT, tidak perlu UPDATE policy)
+  const CHUNK = 500;
+  for (let i = 0; i < newRows.length; i += CHUNK) {
+    const chunk = newRows.slice(i, i + CHUNK);
+    const { error } = await _sb.from(table).insert(chunk);
+    if (error) throw error;
+  }
+
+  return { saved: newRows.length, skipped };
 }
 
 async function dbGetUploadBatches() {

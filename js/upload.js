@@ -380,20 +380,32 @@ async function _applyData() {
     });
     if (bErr) throw bErr;
 
-    let savedData;
+    let result;
     try {
-      savedData = await dbBulkInsertMarketplaceOrders(_detectedMarketplace, _parsedRows, _storeName, batchId);
+      result = await dbBulkInsertMarketplaceOrders(_detectedMarketplace, _parsedRows, _storeName, batchId);
     } catch(e) {
       // Gagal simpan order — hapus batch record supaya tidak ada ghost entry
       await _sb.from('upload_batches').delete().eq('id', batchId);
       throw e;
     }
 
-    const actualCount = savedData?.length ?? _parsedRows.length;
-    await _sb.from('upload_batches').update({ record_count: actualCount }).eq('id', batchId);
+    const { saved, skipped } = result;
 
+    if (saved === 0) {
+      // Semua sudah ada, hapus batch kosong
+      await _sb.from('upload_batches').delete().eq('id', batchId);
+      closeUploadModal();
+      showToast(`ℹ️ Semua ${skipped} data sudah ada, tidak ada yang ditambahkan.`, 'info');
+      return;
+    }
+
+    await _sb.from('upload_batches').update({ record_count: saved }).eq('id', batchId);
     closeUploadModal();
-    showToast(`✅ ${actualCount} data ${MP_CONFIG[_detectedMarketplace].label} berhasil disimpan!`, 'success');
+
+    const mp = MP_CONFIG[_detectedMarketplace].label;
+    let msg = `✅ ${saved} data ${mp} berhasil disimpan!`;
+    if (skipped > 0) msg += ` (${skipped} dilewati, sudah ada)`;
+    showToast(msg, 'success');
     if (typeof refreshPage === 'function') await refreshPage();
   } catch(e) {
     showToast('❌ Gagal simpan: ' + (e.message || e), 'error');
