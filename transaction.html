@@ -28,7 +28,7 @@
 <script src="js/upload.js"></script>
 <script>
 let _user, _profiles = [], _baseTrx = [], _mpChart, _statusChart;
-let _tSearch='', _tMp='', _tStatus='', _tAdv='';
+let _tSearch='', _tMp='', _tStatus='', _tAdv='', _tStore='';
 
 (async () => {
   _user = await requireAuth();
@@ -58,12 +58,15 @@ let _tSearch='', _tMp='', _tStatus='', _tAdv='';
     <div class="card">
       <div class="card-header"><div class="card-header-left"><h3>Semua Transaksi</h3></div></div>
       <div class="controls">
-        <input type="text" class="ctrl-input" placeholder="🔍 ID / produk / SKU..." oninput="_tSearch=this.value;renderTable()" style="min-width:170px">
-        <select class="ctrl-select" onchange="_tMp=this.value;renderTable()">
+        <input type="text" class="ctrl-input" placeholder="🔍 ID / produk / SKU / toko..." oninput="_tSearch=this.value;renderTable()" style="min-width:170px">
+        <select class="ctrl-select" onchange="_tMp=this.value;_tStore='';renderTable()">
           <option value="">Semua Marketplace</option>
           <option value="shopee">Shopee</option>
           <option value="lazada">Lazada</option>
           <option value="tiktok">TikTok</option>
+        </select>
+        <select class="ctrl-select" id="storeFilter" onchange="_tStore=this.value;renderTable()">
+          <option value="">Semua Toko</option>
         </select>
         <select class="ctrl-select" onchange="_tStatus=this.value;renderTable()">
           <option value="">Semua Status</option>
@@ -81,7 +84,7 @@ let _tSearch='', _tMp='', _tStatus='', _tAdv='';
         <table>
           <thead><tr>
             <th>ID Transaksi</th>${isSPV?'<th>ADV</th>':''}
-            <th>Produk</th><th>Marketplace</th><th>Tanggal</th><th>Qty</th><th>Total Omset</th><th>Status</th>
+            <th>Produk</th><th>Marketplace & Toko</th><th>Tanggal</th><th>Qty</th><th>Total Omset</th><th>Status</th>
           </tr></thead>
           <tbody id="trxTable"></tbody>
         </table>
@@ -154,8 +157,21 @@ async function refreshPage() {
 function renderTable() {
   const isSPV = _user.role === 'spv';
   let list = [..._baseTrx];
-  if (_tSearch) list = list.filter(t => [t.id,t.product,t.sku].some(v=>String(v).toLowerCase().includes(_tSearch.toLowerCase())));
+
+  // Update store filter options berdasarkan marketplace yang dipilih
+  const stores = [...new Set(_baseTrx
+    .filter(t => !_tMp || t.marketplace === _tMp)
+    .map(t => t.store_name).filter(Boolean))].sort();
+  const storeEl = document.getElementById('storeFilter');
+  if (storeEl) {
+    const cur = _tStore;
+    storeEl.innerHTML = `<option value="">Semua Toko</option>` +
+      stores.map(s => `<option value="${s}" ${s===cur?'selected':''}>${s}</option>`).join('');
+  }
+
+  if (_tSearch) list = list.filter(t => [t.id,t.product,t.sku,t.store_name].some(v=>String(v||'').toLowerCase().includes(_tSearch.toLowerCase())));
   if (_tMp)     list = list.filter(t => t.marketplace === _tMp);
+  if (_tStore)  list = list.filter(t => t.store_name === _tStore);
   if (_tStatus) list = list.filter(t => t.status === _tStatus);
   if (_tAdv)    list = list.filter(t => t.adv_id === _tAdv);
 
@@ -176,7 +192,10 @@ function renderTable() {
         <span style="font-size:.82rem">${p.name?.split(' ')[0]||'-'}</span>
       </div></td>`:''}
       <td><div style="font-weight:600">${t.product||'-'}</div><div style="font-size:.72rem;color:var(--text-3)">${t.sku}</div></td>
-      <td>${badgeMarketplace(t.marketplace)}</td>
+      <td>
+        ${badgeMarketplace(t.marketplace)}
+        ${t.store_name ? `<div style="font-size:.72rem;color:var(--text-3);margin-top:3px">🏪 ${t.store_name}</div>` : ''}
+      </td>
       <td style="color:var(--text-3);font-size:.82rem;white-space:nowrap">${t.date}</td>
       <td style="font-weight:700">${t.qty}</td>
       <td style="font-weight:800;color:var(--primary)">${fmtFull(t.total||0)}</td>
@@ -184,7 +203,7 @@ function renderTable() {
     </tr>`;
   }).join('');
 
-  const totalOmset = list.filter(t=>t.status!=='dibatalkan').reduce((s,t)=>s+t.qty*t.price,0);
+  const totalOmset = list.filter(t=>t.status!=='dibatalkan').reduce((s,t)=>s+(t.total||0),0);
   document.getElementById('trxInfo').textContent = `Menampilkan ${list.length} transaksi · Omset: ${fmtFull(totalOmset)}`;
   window._filteredTrx = list;
 }
