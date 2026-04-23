@@ -132,6 +132,19 @@ function _parseDate(raw) {
   return isNaN(d) ? new Date().toISOString().slice(0, 10) : d.toISOString().slice(0, 10);
 }
 
+// Ambil jam (0-23) dari nilai datetime raw Excel
+function _parseHour(raw) {
+  if (!raw && raw !== 0) return null;
+  // Excel serial number dengan fraksi waktu (misal 46012.625 = jam 15:00)
+  if (typeof raw === 'number' && raw > 1) {
+    const fraction = raw - Math.floor(raw);
+    return Math.floor(fraction * 24);
+  }
+  // String datetime: "2026-04-23 14:30:00" atau "2026-04-23T14:30"
+  const match = String(raw).match(/[T\s](\d{1,2}):/);
+  return match ? parseInt(match[1]) : null;
+}
+
 // ── Read sheet — handle normal & transposed ────────────────────────────────────
 function _readSheet(ws, isTransposed) {
   if (!isTransposed) {
@@ -166,15 +179,18 @@ function _parseRows(rows, mp, mapping) {
       const qty        = qtyRaw * multiplier;
       const unit_price = _parsePrice(get(mapping.unit_price));
       const total      = unit_price;
+      const rawDate    = get(mapping.date);
+      const order_hour = _parseHour(rawDate);
       return {
         id:         String(get(mapping.id) || ('IMP-' + mp + '-' + i)).trim(),
-        date:       _parseDate(get(mapping.date)),
+        date:       _parseDate(rawDate),
         sku:        skuRaw,
         product:    String(get(mapping.product) || '').trim(),
         qty,
         unit_price,
         total,
         status,
+        order_hour,
         marketplace: mp,
       };
     })

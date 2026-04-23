@@ -79,6 +79,7 @@ async function dbBulkInsertMarketplaceOrders(marketplace, rows, storeName = '') 
     total:      r.total,
     status:     r.status,
     store_name: storeName,
+    order_hour: r.order_hour ?? null,
     adv_id:     session.user.id,
   }));
   const { data, error } = await _sb.from(table).insert(inserts).select();
