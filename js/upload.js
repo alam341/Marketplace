@@ -181,7 +181,7 @@ function _parseRows(rows, mp, mapping) {
       const qty        = qtyRaw * multiplier;
       const unit_price = _parsePrice(get(mapping.unit_price));
       const discount   = mapping.discount ? _parsePrice(get(mapping.discount)) : 0;
-      const total      = Math.max(0, (unit_price * qty) - discount);
+      const total      = Math.max(0, (unit_price * qtyRaw) - discount);
       const rawDate    = get(mapping.date);
       const order_hour = _parseHour(rawDate);
       return {
