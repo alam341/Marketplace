@@ -18,7 +18,8 @@ const MP_CONFIG = {
       product:    h => _findCol(h, ['nama produk']),
       qty:        h => _findCol(h, ['jumlah']),
       unit_price: h => _findCol(h, ['harga awal']),
-      total:      h => null, // dihitung: qty * unit_price
+      discount:   h => _findCol(h, ['diskon dari penjual', 'diskon penjual']),
+      total:      h => null, // dihitung: (unit_price * qty) - discount
       status:     h => _findCol(h, ['status pesanan']),
     },
   },
@@ -33,7 +34,8 @@ const MP_CONFIG = {
       product:    h => _findCol(h, ['product name']),
       qty:        h => _findCol(h, ['quantity']),
       unit_price: h => _findCol(h, ['sku unit original price']),
-      total:      h => null, // dihitung: qty * unit_price
+      discount:   h => _findCol(h, ['sku seller discount', 'seller discount']),
+      total:      h => null, // dihitung: (unit_price * qty) - discount
       status:     h => _findCol(h, ['order status']),
     },
   },
@@ -178,7 +180,8 @@ function _parseRows(rows, mp, mapping) {
       const qtyRaw     = mapping.qty ? _parseQty(get(mapping.qty)) : 1;
       const qty        = qtyRaw * multiplier;
       const unit_price = _parsePrice(get(mapping.unit_price));
-      const total      = unit_price;
+      const discount   = mapping.discount ? _parsePrice(get(mapping.discount)) : 0;
+      const total      = Math.max(0, (unit_price * qty) - discount);
       const rawDate    = get(mapping.date);
       const order_hour = _parseHour(rawDate);
       return {
