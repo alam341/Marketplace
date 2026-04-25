@@ -100,12 +100,6 @@ let _tSearch='', _tMp='', _tStatus='', _tAdv='', _tStore='';
   `;
 
   await refreshPage();
-
-  // Real-time updates
-  subscribeTransactions(async () => {
-    showToast('Ada transaksi baru!', 'info');
-    await refreshPage();
-  });
 })();
 
 async function refreshPage() {
