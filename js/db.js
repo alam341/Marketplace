@@ -109,6 +109,7 @@ async function dbBulkInsertMarketplaceOrders(marketplace, rows, storeName = '', 
     if (error) throw error;
   }
 
+  clearOrdersCache();
   return { saved: newRows.length, skipped };
 }
 
@@ -127,12 +128,39 @@ async function dbDeleteUploadBatch(batchId, marketplace) {
   if (e2) throw e2;
 }
 
+// ── sessionStorage Cache ──────────────────────────────────────────────────────
+const _CACHE_TTL = 5 * 60 * 1000; // 5 menit
+
+function _cacheKey(filters) {
+  return 'mp_orders_' + JSON.stringify(filters);
+}
+function _getCache(filters) {
+  try {
+    const raw = sessionStorage.getItem(_cacheKey(filters));
+    if (!raw) return null;
+    const { data, ts } = JSON.parse(raw);
+    if (Date.now() - ts > _CACHE_TTL) { sessionStorage.removeItem(_cacheKey(filters)); return null; }
+    return data;
+  } catch { return null; }
+}
+function _setCache(filters, data) {
+  try {
+    sessionStorage.setItem(_cacheKey(filters), JSON.stringify({ data, ts: Date.now() }));
+  } catch {} // abaikan kalau storage penuh
+}
+function clearOrdersCache() {
+  Object.keys(sessionStorage)
+    .filter(k => k.startsWith('mp_orders_'))
+    .forEach(k => sessionStorage.removeItem(k));
+}
+
 async function _fetchAllRows(table, filters) {
+  const COLS = 'id, date, sku, product, qty, total, status, store_name, order_hour, upload_batch_id, adv_id, profiles(id, name, avatar)';
   const PAGE = 1000;
   let from = 0, all = [];
   while (true) {
     let q = _sb.from(table)
-      .select('*, profiles(id, name, avatar, role)')
+      .select(COLS)
       .order('date', { ascending: false })
       .range(from, from + PAGE - 1);
     if (filters.dateFrom) q = q.gte('date', filters.dateFrom);
@@ -150,6 +178,9 @@ async function _fetchAllRows(table, filters) {
 }
 
 async function dbGetAllMarketplaceOrders(filters = {}) {
+  const cached = _getCache(filters);
+  if (cached) return cached;
+
   const tables = ['shopee', 'tiktok', 'lazada'];
   const results = await Promise.all(
     tables.map(mp =>
@@ -158,9 +189,12 @@ async function dbGetAllMarketplaceOrders(filters = {}) {
     )
   );
 
-  const all = results.flat();
-  if (filters.marketplace) return all.filter(r => r.marketplace === filters.marketplace);
-  return all.sort((a, b) => new Date(b.date) - new Date(a.date));
+  let all = results.flat();
+  if (filters.marketplace) all = all.filter(r => r.marketplace === filters.marketplace);
+  else all.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  _setCache(filters, all);
+  return all;
 }
 
 // ── Rekap by Upload Date ──────────────────────────────────────────────────────
