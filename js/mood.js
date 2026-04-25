@@ -179,12 +179,12 @@ function renderWelcomeBanner(containerId, user) {
           box-shadow:0 2px 12px rgba(67,97,238,.15);
         ">✨ ${moodMsg}</div>
       </div>
-      <div id="welcomeAnimal" style="text-align:center;min-width:200px;transition:opacity .4s ease">
+      <div id="welcomeAnimal" style="text-align:center;min-width:180px;transition:opacity .4s ease">
         <lottie-player id="lottiePlayer"
           src="${animal.src}"
           background="transparent"
           speed="1"
-          style="width:200px;height:200px"
+          style="width:180px;height:180px"
           loop autoplay>
         </lottie-player>
       </div>
