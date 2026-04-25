@@ -12,16 +12,11 @@ const MOODS = [
 ];
 
 const ANIMALS = [
-  { emoji:'🐬', desc:'Lumba-lumba cerdas & gesit'    },
-  { emoji:'🦁', desc:'Singa berani & memimpin'        },
-  { emoji:'🦅', desc:'Elang tajam & selalu fokus'     },
-  { emoji:'🐅', desc:'Harimau gesit & bertenaga'      },
-  { emoji:'🦊', desc:'Rubah cerdik & adaptif'         },
-  { emoji:'🐺', desc:'Serigala setia & tangguh'       },
-  { emoji:'🦉', desc:'Burung hantu bijak & sabar'     },
-  { emoji:'🐉', desc:'Naga kuat & penuh semangat'     },
-  { emoji:'🦋', desc:'Kupu-kupu indah & penuh warna'  },
-  { emoji:'🐆', desc:'Cheetah tercepat di kelasnya'   },
+  { src: 'assets/Welcome Animation.json'             },
+  { src: 'assets/Cat playing animation.json'         },
+  { src: 'assets/Loader cat.json'                    },
+  { src: 'assets/Tiger astronaut riding missile.json'},
+  { src: 'assets/Error 404.json'                     },
 ];
 
 let _animalIdx = Math.floor(Math.random() * ANIMALS.length);
@@ -184,26 +179,28 @@ function renderWelcomeBanner(containerId, user) {
           box-shadow:0 2px 12px rgba(67,97,238,.15);
         ">✨ ${moodMsg}</div>
       </div>
-      <div id="welcomeAnimal" style="text-align:center;min-width:90px;transition:opacity .4s ease">
-        <div style="font-size:3.8rem;line-height:1">${animal.emoji}</div>
-        <div style="font-size:.7rem;color:#64748B;margin-top:6px;font-weight:600;max-width:80px">${animal.desc}</div>
+      <div id="welcomeAnimal" style="text-align:center;min-width:120px;transition:opacity .4s ease">
+        <lottie-player id="lottiePlayer"
+          src="${animal.src}"
+          background="transparent"
+          speed="1"
+          style="width:120px;height:120px"
+          loop autoplay>
+        </lottie-player>
       </div>
     </div>
   `;
 
-  // Rotate animal every 5 seconds
+  // Rotate lottie animation every 60 seconds
   if (_animalTimer) clearInterval(_animalTimer);
   _animalTimer = setInterval(() => {
     const el = document.getElementById('welcomeAnimal');
-    if (!el) { clearInterval(_animalTimer); return; }
+    const player = document.getElementById('lottiePlayer');
+    if (!el || !player) { clearInterval(_animalTimer); return; }
     el.style.opacity = '0';
     setTimeout(() => {
       _animalIdx = (_animalIdx + 1) % ANIMALS.length;
-      const a = ANIMALS[_animalIdx];
-      el.innerHTML = `
-        <div style="font-size:3.8rem;line-height:1">${a.emoji}</div>
-        <div style="font-size:.7rem;color:#64748B;margin-top:6px;font-weight:600;max-width:80px">${a.desc}</div>
-      `;
+      player.load(ANIMALS[_animalIdx].src);
       el.style.opacity = '1';
     }, 400);
   }, 60000);
