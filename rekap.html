@@ -16,7 +16,6 @@
   <div class="main-content">
     <div id="header-slot"></div>
     <div class="page">
-      <div id="dateFilterContainer"></div>
       <div id="pageContent"></div>
     </div>
   </div>
@@ -29,6 +28,7 @@
 <script>
 let _user, _profiles = [], _baseData = [];
 let _fMp = '', _fStore = '', _fAdv = '', _fSearch = '';
+let _uploadDate = fmtDate(0); // default: hari ini
 
 (async () => {
   _user = await requireAuth();
@@ -36,20 +36,30 @@ let _fMp = '', _fStore = '', _fAdv = '', _fSearch = '';
   _profiles = await dbGetAllProfiles().catch(() => []);
   _user._color = _user.role === 'spv' ? '#EF233C' : assignUserColor(_profiles, _user.id);
   renderLayout('rekap', _user);
-  renderDateFilter('dateFilterContainer', 'refreshPage');
 
   const isSPV = _user.role === 'spv';
   document.getElementById('pageContent').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:12px">
       <div>
         <h2 style="font-weight:800">Rekap SKU</h2>
-        <div style="color:var(--text-3);font-size:.85rem">Ringkasan qty & omset per toko dan SKU</div>
+        <div style="color:var(--text-3);font-size:.85rem">Ringkasan qty & omset berdasarkan data yang diupload</div>
       </div>
       <button class="btn btn-primary" onclick="exportCSV()">⬇ Export CSV</button>
     </div>
 
     <div class="card" style="margin-bottom:18px;padding:12px 18px">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+
+        <div style="display:flex;align-items:center;gap:6px;background:var(--bg-2);border-radius:10px;padding:6px 12px;border:1px solid var(--border)">
+          <span style="font-size:.78rem;font-weight:700;color:var(--text-3);white-space:nowrap">📅 Tanggal Upload:</span>
+          <input type="date" class="date-input" id="uploadDateInput" value="${_uploadDate}"
+            onchange="_uploadDate=this.value;_fStore='';refreshPage()" style="border:none;background:transparent;font-weight:700">
+          <button class="date-preset ${_uploadDate === fmtDate(0) ? 'active' : ''}" id="todayBtn"
+            onclick="_uploadDate=fmtDate(0);document.getElementById('uploadDateInput').value=_uploadDate;document.getElementById('todayBtn').classList.add('active');_fStore='';refreshPage()">
+            Hari Ini
+          </button>
+        </div>
+
         <select class="ctrl-select" id="mpFilter" onchange="_fMp=this.value;_fStore='';renderAll()">
           <option value="">Semua Marketplace</option>
           <option value="shopee">Shopee</option>
@@ -60,7 +70,7 @@ let _fMp = '', _fStore = '', _fAdv = '', _fSearch = '';
           <option value="">Semua Toko</option>
         </select>
         ${isSPV ? `
-        <select class="ctrl-select" id="advFilter" onchange="_fAdv=this.value;renderAll()">
+        <select class="ctrl-select" id="advFilter" onchange="_fAdv=this.value;refreshPage()">
           <option value="">Semua ADV</option>
           ${_profiles.map(p => `<option value="${p.id}">${p.name.split(' ')[0]}</option>`).join('')}
         </select>` : ''}
@@ -98,22 +108,16 @@ let _fMp = '', _fStore = '', _fAdv = '', _fSearch = '';
 })();
 
 async function refreshPage() {
-  const { from, to } = window._dateFilter;
-  const filters = { dateFrom: from, dateTo: to };
-  if (_user.role !== 'spv') filters.advId = _user.id;
-
+  const advId = (_user.role !== 'spv') ? _user.id : (_fAdv || null);
   try {
-    showLoading();
-    _baseData = await dbGetAllMarketplaceOrders(filters);
+    const tbody = document.getElementById('rekapTable');
+    if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="empty"><div class="spinner" style="margin:0 auto"></div></td></tr>`;
+
+    _baseData = await dbGetRekapByUploadDate(_uploadDate, advId);
     renderAll();
   } catch (e) {
     showError('Gagal memuat data: ' + e.message);
   }
-}
-
-function showLoading() {
-  const el = document.getElementById('rekapTable');
-  if (el) el.innerHTML = `<tr><td colspan="6" class="empty"><div class="spinner" style="margin:0 auto"></div></td></tr>`;
 }
 
 function renderAll() {
@@ -132,13 +136,12 @@ function renderAll() {
   let list = _baseData.filter(r => r.status !== 'dibatalkan');
   if (_fMp)     list = list.filter(r => r.marketplace === _fMp);
   if (_fStore)  list = list.filter(r => r.store_name === _fStore);
-  if (_fAdv)    list = list.filter(r => r.adv_id === _fAdv);
   if (_fSearch) {
     const q = _fSearch.toLowerCase();
     list = list.filter(r => [r.sku, r.product, r.store_name].some(v => String(v || '').toLowerCase().includes(q)));
   }
 
-  // Aggregate: key = marketplace|store_name|sku
+  // Aggregate: group by marketplace + store_name + sku
   const map = new Map();
   list.forEach(r => {
     const key = `${r.marketplace}||${r.store_name || '-'}||${r.sku}`;
@@ -166,11 +169,12 @@ function renderAll() {
   const totalSKU   = rows.length;
   const totalToko  = new Set(rows.map(r => r.store_name)).size;
 
+  const dateLabel = _uploadDate === fmtDate(0) ? 'hari ini' : _uploadDate;
   document.getElementById('rekapStats').innerHTML = `
     <div class="stat-card primary">
       <div class="stat-label">Total Omset</div>
       <div class="stat-value" style="font-size:1.1rem">${fmtFull(totalOmset)}</div>
-      <div class="stat-sub">Transaksi selesai + diproses</div>
+      <div class="stat-sub">Upload ${dateLabel}</div>
       <div class="stat-icon">💰</div>
     </div>
     <div class="stat-card">
@@ -195,7 +199,7 @@ function renderAll() {
 
   const body = document.getElementById('rekapTable');
   if (!rows.length) {
-    body.innerHTML = `<tr><td colspan="6" class="empty"><div class="icon">🔍</div>Tidak ada data</td></tr>`;
+    body.innerHTML = `<tr><td colspan="6" class="empty"><div class="icon">📭</div>Tidak ada data yang diupload pada ${dateLabel}</td></tr>`;
     document.getElementById('rekapInfo').textContent = '';
     window._rekapRows = rows;
     return;
@@ -224,7 +228,7 @@ function exportCSV() {
   const csv = [header, ...data].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
   const a = document.createElement('a');
   a.href = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent(csv);
-  a.download = 'rekap-sku.csv';
+  a.download = `rekap-sku-${_uploadDate}.csv`;
   a.click();
 }
 </script>
