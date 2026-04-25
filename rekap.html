@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" href="img/logo-adsy.png">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rekap SKU — MarketDash</title>
+<link rel="stylesheet" href="css/main.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+<div class="app-shell">
+  <div id="sidebar-slot"></div>
+  <div class="main-content">
+    <div id="header-slot"></div>
+    <div class="page">
+      <div id="dateFilterContainer"></div>
+      <div id="pageContent"></div>
+    </div>
+  </div>
+</div>
+<script src="js/config.js"></script>
+<script src="js/db.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/app.js"></script>
+<script src="js/upload.js"></script>
+<script>
+let _user, _profiles = [], _baseData = [];
+let _fMp = '', _fStore = '', _fAdv = '', _fSearch = '';
+
+(async () => {
+  _user = await requireAuth();
+  if (!_user) return;
+  _profiles = await dbGetAllProfiles().catch(() => []);
+  _user._color = _user.role === 'spv' ? '#EF233C' : assignUserColor(_profiles, _user.id);
+  renderLayout('rekap', _user);
+  renderDateFilter('dateFilterContainer', 'refreshPage');
+
+  const isSPV = _user.role === 'spv';
+  document.getElementById('pageContent').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:12px">
+      <div>
+        <h2 style="font-weight:800">Rekap SKU</h2>
+        <div style="color:var(--text-3);font-size:.85rem">Ringkasan qty & omset per toko dan SKU</div>
+      </div>
+      <button class="btn btn-primary" onclick="exportCSV()">⬇ Export CSV</button>
+    </div>
+
+    <div class="card" style="margin-bottom:18px;padding:12px 18px">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select class="ctrl-select" id="mpFilter" onchange="_fMp=this.value;_fStore='';renderAll()">
+          <option value="">Semua Marketplace</option>
+          <option value="shopee">Shopee</option>
+          <option value="lazada">Lazada</option>
+          <option value="tiktok">TikTok</option>
+        </select>
+        <select class="ctrl-select" id="storeFilter" onchange="_fStore=this.value;renderAll()">
+          <option value="">Semua Toko</option>
+        </select>
+        ${isSPV ? `
+        <select class="ctrl-select" id="advFilter" onchange="_fAdv=this.value;renderAll()">
+          <option value="">Semua ADV</option>
+          ${_profiles.map(p => `<option value="${p.id}">${p.name.split(' ')[0]}</option>`).join('')}
+        </select>` : ''}
+        <input type="text" class="ctrl-input" id="searchInput" placeholder="🔍 Cari SKU / produk / toko..."
+          oninput="_fSearch=this.value;renderAll()" style="min-width:200px;margin-left:auto">
+      </div>
+    </div>
+
+    <div class="stat-grid" id="rekapStats" style="margin-bottom:18px"></div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-header-left">
+          <h3>Rekap per Toko & SKU</h3>
+          <div class="card-sub" id="rekapInfo"></div>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Marketplace</th>
+            <th>Nama Toko</th>
+            <th>SKU</th>
+            <th>Nama Produk</th>
+            <th style="text-align:right">Total QTY</th>
+            <th style="text-align:right">Total Omset</th>
+          </tr></thead>
+          <tbody id="rekapTable"></tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  await refreshPage();
+})();
+
+async function refreshPage() {
+  const { from, to } = window._dateFilter;
+  const filters = { dateFrom: from, dateTo: to };
+  if (_user.role !== 'spv') filters.advId = _user.id;
+
+  try {
+    showLoading();
+    _baseData = await dbGetAllMarketplaceOrders(filters);
+    renderAll();
+  } catch (e) {
+    showError('Gagal memuat data: ' + e.message);
+  }
+}
+
+function showLoading() {
+  const el = document.getElementById('rekapTable');
+  if (el) el.innerHTML = `<tr><td colspan="6" class="empty"><div class="spinner" style="margin:0 auto"></div></td></tr>`;
+}
+
+function renderAll() {
+  // Update store options
+  const stores = [...new Set(_baseData
+    .filter(r => !_fMp || r.marketplace === _fMp)
+    .map(r => r.store_name).filter(Boolean))].sort();
+  const storeEl = document.getElementById('storeFilter');
+  if (storeEl) {
+    const cur = _fStore;
+    storeEl.innerHTML = `<option value="">Semua Toko</option>` +
+      stores.map(s => `<option value="${s}" ${s === cur ? 'selected' : ''}>${s}</option>`).join('');
+  }
+
+  // Apply filters — exclude cancelled untuk omset
+  let list = _baseData.filter(r => r.status !== 'dibatalkan');
+  if (_fMp)     list = list.filter(r => r.marketplace === _fMp);
+  if (_fStore)  list = list.filter(r => r.store_name === _fStore);
+  if (_fAdv)    list = list.filter(r => r.adv_id === _fAdv);
+  if (_fSearch) {
+    const q = _fSearch.toLowerCase();
+    list = list.filter(r => [r.sku, r.product, r.store_name].some(v => String(v || '').toLowerCase().includes(q)));
+  }
+
+  // Aggregate: key = marketplace|store_name|sku
+  const map = new Map();
+  list.forEach(r => {
+    const key = `${r.marketplace}||${r.store_name || '-'}||${r.sku}`;
+    if (!map.has(key)) {
+      map.set(key, {
+        marketplace: r.marketplace,
+        store_name:  r.store_name || '-',
+        sku:         r.sku,
+        product:     r.product || '-',
+        totalQty:    0,
+        totalOmset:  0,
+      });
+    }
+    const row = map.get(key);
+    row.totalQty   += (r.qty || 0);
+    row.totalOmset += (r.total || 0);
+  });
+
+  const rows = Array.from(map.values())
+    .sort((a, b) => b.totalOmset - a.totalOmset);
+
+  // Stats
+  const totalOmset = rows.reduce((s, r) => s + r.totalOmset, 0);
+  const totalQty   = rows.reduce((s, r) => s + r.totalQty, 0);
+  const totalSKU   = rows.length;
+  const totalToko  = new Set(rows.map(r => r.store_name)).size;
+
+  document.getElementById('rekapStats').innerHTML = `
+    <div class="stat-card primary">
+      <div class="stat-label">Total Omset</div>
+      <div class="stat-value" style="font-size:1.1rem">${fmtFull(totalOmset)}</div>
+      <div class="stat-sub">Transaksi selesai + diproses</div>
+      <div class="stat-icon">💰</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Total QTY</div>
+      <div class="stat-value">${totalQty.toLocaleString('id-ID')}</div>
+      <div class="stat-sub">pcs terjual</div>
+      <div class="stat-icon">📦</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Jumlah SKU</div>
+      <div class="stat-value">${totalSKU}</div>
+      <div class="stat-sub">SKU aktif</div>
+      <div class="stat-icon">🏷️</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Jumlah Toko</div>
+      <div class="stat-value">${totalToko}</div>
+      <div class="stat-sub">Toko aktif</div>
+      <div class="stat-icon">🏪</div>
+    </div>
+  `;
+
+  const body = document.getElementById('rekapTable');
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="6" class="empty"><div class="icon">🔍</div>Tidak ada data</td></tr>`;
+    document.getElementById('rekapInfo').textContent = '';
+    window._rekapRows = rows;
+    return;
+  }
+
+  body.innerHTML = rows.map(r => `
+    <tr>
+      <td>${badgeMarketplace(r.marketplace)}</td>
+      <td style="font-weight:600">🏪 ${r.store_name}</td>
+      <td style="font-family:monospace;font-size:.78rem;color:var(--text-3)">${r.sku}</td>
+      <td style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${r.product}">${r.product}</td>
+      <td style="text-align:right;font-weight:700">${r.totalQty.toLocaleString('id-ID')} pcs</td>
+      <td style="text-align:right;font-weight:800;color:var(--primary)">${fmtFull(r.totalOmset)}</td>
+    </tr>
+  `).join('');
+
+  document.getElementById('rekapInfo').textContent =
+    `${rows.length} SKU · ${totalToko} toko · Omset: ${fmtFull(totalOmset)}`;
+  window._rekapRows = rows;
+}
+
+function exportCSV() {
+  const rows = window._rekapRows || [];
+  const header = ['Marketplace', 'Nama Toko', 'SKU', 'Nama Produk', 'Total QTY', 'Total Omset'];
+  const data = rows.map(r => [r.marketplace, r.store_name, r.sku, r.product, r.totalQty, r.totalOmset]);
+  const csv = [header, ...data].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent(csv);
+  a.download = 'rekap-sku.csv';
+  a.click();
+}
+</script>
+</body>
+</html>
