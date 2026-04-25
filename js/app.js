@@ -3,6 +3,7 @@ const PAGES = [
   { id: 'report',      label: 'Report',      icon: '📊', file: 'report.html'      },
   { id: 'product',     label: 'Product',     icon: '📦', file: 'product.html'     },
   { id: 'transaction', label: 'Transaction', icon: '💳', file: 'transaction.html' },
+  { id: 'rekap',       label: 'Rekap SKU',   icon: '📋', file: 'rekap.html'       },
 ];
 
 const ADV_COLORS = ['#4361EE','#7B2FBE','#06C270','#FFB703','#EF233C'];
