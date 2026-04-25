@@ -27,8 +27,16 @@ async function dbGetProfile(userId) {
 }
 
 async function dbGetAllProfiles() {
+  try {
+    const raw = sessionStorage.getItem('adv_profiles');
+    if (raw) {
+      const { data, ts } = JSON.parse(raw);
+      if (Date.now() - ts < _CACHE_TTL) return data;
+    }
+  } catch {}
   const { data, error } = await _sb.from('profiles').select('*').eq('role', 'adv').order('name');
   if (error) throw error;
+  try { sessionStorage.setItem('adv_profiles', JSON.stringify({ data, ts: Date.now() })); } catch {}
   return data;
 }
 
