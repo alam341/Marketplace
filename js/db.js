@@ -163,6 +163,55 @@ async function dbGetAllMarketplaceOrders(filters = {}) {
   return all.sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
+// ── Rekap by Upload Date ──────────────────────────────────────────────────────
+async function dbGetOrdersByBatchIds(marketplace, batchIds) {
+  if (!batchIds.length) return [];
+  const table = marketplace + '_orders';
+  const PAGE = 1000;
+  let from = 0, all = [];
+  while (true) {
+    let q = _sb.from(table)
+      .select('*, profiles(id, name, avatar, role)')
+      .in('upload_batch_id', batchIds)
+      .range(from, from + PAGE - 1);
+    const { data, error } = await q;
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    all = all.concat(data);
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+  return all.map(r => ({ ...r, marketplace }));
+}
+
+async function dbGetRekapByUploadDate(uploadDate, advId = null) {
+  // uploadDate format: 'YYYY-MM-DD'
+  const dateStart = uploadDate + 'T00:00:00';
+  const dateEnd   = uploadDate + 'T23:59:59';
+
+  let q = _sb.from('upload_batches')
+    .select('id, marketplace, store_name, adv_id, uploaded_at')
+    .gte('uploaded_at', dateStart)
+    .lte('uploaded_at', dateEnd);
+  if (advId) q = q.eq('adv_id', advId);
+
+  const { data: batches, error } = await q;
+  if (error) throw error;
+  if (!batches || batches.length === 0) return [];
+
+  // Group batch IDs by marketplace
+  const byMp = {};
+  batches.forEach(b => {
+    if (!byMp[b.marketplace]) byMp[b.marketplace] = [];
+    byMp[b.marketplace].push(b.id);
+  });
+
+  const results = await Promise.all(
+    Object.entries(byMp).map(([mp, ids]) => dbGetOrdersByBatchIds(mp, ids))
+  );
+  return results.flat();
+}
+
 // ── Profile Update ────────────────────────────────────────────────────────────
 async function dbUpdateProfile(updates) {
   const session = await sbGetSession();
