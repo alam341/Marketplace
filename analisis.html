@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" href="img/logo-adsy.png">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Analisis Penjualan — MarketDash</title>
+<link rel="stylesheet" href="css/main.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+<div class="app-shell">
+  <div id="sidebar-slot"></div>
+  <div class="main-content">
+    <div id="header-slot"></div>
+    <div class="page">
+      <div id="dateFilterContainer"></div>
+      <div id="pageContent"></div>
+    </div>
+  </div>
+</div>
+<script src="js/config.js"></script>
+<script src="js/db.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/app.js"></script>
+<script src="js/upload.js"></script>
+
+<style>
+/* ── Analisis Page Styles ───────────────────────────────────────────────── */
+.page-loading {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; padding: 80px 20px; color: var(--text-3); font-size: .9rem; font-weight: 600;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  width: 32px; height: 32px; border-radius: 50%;
+  border: 3px solid var(--border); border-top-color: var(--primary);
+  animation: spin .7s linear infinite;
+}
+
+/* SKU Grid */
+.sku-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+@media (max-width: 1100px) { .sku-grid { grid-template-columns: 1fr; } }
+
+/* SKU Card */
+.sku-card {
+  background: var(--card);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 18px 20px 16px;
+  border: 1.5px solid transparent;
+  transition: background .25s, box-shadow .2s, transform .2s, border-color .2s;
+}
+.sku-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 28px rgba(0,0,0,.1);
+  border-color: rgba(67,97,238,.18);
+}
+
+/* Rank badges */
+.rank-medal { font-size: 1.4rem; line-height: 1; flex-shrink: 0; }
+.rank-num {
+  font-size: .78rem; font-weight: 800; flex-shrink: 0;
+  background: var(--bg); color: var(--text-3);
+  border: 1.5px solid var(--border); border-radius: 8px;
+  padding: 2px 8px;
+}
+
+/* Mode banner */
+.mode-banner {
+  border-radius: 12px; padding: 12px 18px; margin-bottom: 18px;
+  display: flex; align-items: center; gap: 10px;
+  font-size: .85rem; font-weight: 600;
+}
+.mode-banner.single     { background: rgba(67,97,238,.07); color: var(--primary); border: 1px solid rgba(67,97,238,.15); }
+.mode-banner.comparison { background: var(--card); border: 1.5px solid var(--border); color: var(--text-1); }
+.mode-banner.multi      { background: rgba(6,194,112,.07); color: #06843C; border: 1px solid rgba(6,194,112,.2); }
+
+/* SKU stats inside card */
+.sku-stats-row { display: flex; gap: 16px; margin: 10px 0 12px; flex-wrap: wrap; }
+.sku-stat { }
+.sku-stat-lbl { font-size: .65rem; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 2px; }
+.sku-stat-val { font-size: .95rem; font-weight: 800; color: var(--text-1); }
+.sku-stat-val.accent { color: var(--primary); }
+
+/* Comparison day boxes */
+.day-box {
+  border-radius: 9px; padding: 8px 11px;
+}
+.day-box-1 { background: rgba(67,97,238,.06); }
+.day-box-2 { background: rgba(255,183,3,.07); }
+
+/* Peak badge */
+.peak-badge {
+  font-size: .68rem; font-weight: 700; border-radius: 999px; padding: 3px 9px;
+  white-space: nowrap;
+}
+.peak-1 { background: rgba(67,97,238,.1); color: var(--primary); }
+.peak-2 { background: rgba(255,183,3,.13); color: #8A6400; }
+
+/* Legend dot */
+.legend-dot { width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0; display: inline-block; }
+
+/* Dark mode adjustments */
+[data-theme="dark"] .day-box-1 { background: rgba(67,97,238,.12); }
+[data-theme="dark"] .day-box-2 { background: rgba(255,183,3,.1); }
+[data-theme="dark"] .peak-1    { background: rgba(67,97,238,.18); }
+[data-theme="dark"] .peak-2    { background: rgba(255,183,3,.15); color: #FCD34D; }
+</style>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let _user, _profiles = [];
+let _fMp = '', _fAdv = '';
+let _sortBy = 'qty'; // 'qty' | 'omset'
+let _charts = new Map();
+let _overallChart = null;
+// Cached data so re-sort doesn't need re-fetch
+let _cachedRows1 = null, _cachedRows2 = null, _cachedMeta = null;
+
+const HOUR_LABELS = Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0') + ':00');
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+(async () => {
+  _user = await requireAuth();
+  if (!_user) return;
+
+  _profiles = await dbGetAllProfiles().catch(() => []);
+  _user._color = _user.role === 'spv' ? '#EF233C' : assignUserColor(_profiles, _user.id);
+
+  renderLayout('analisis', _user);
+
+  // Default: hari ini
+  window._dateFilter = { from: fmtDate(0), to: fmtDate(0), preset: 'today' };
+  renderDateFilter('dateFilterContainer', 'refreshPage');
+  // Force today active state
+  document.querySelectorAll('.date-preset').forEach(b => b.classList.remove('active'));
+  document.querySelector('.date-preset')?.classList.add('active');
+
+  await refreshPage();
+})();
+
+// ── Main fetch & render ───────────────────────────────────────────────────────
+async function refreshPage() {
+  _destroyCharts();
+  document.getElementById('pageContent').innerHTML =
+    `<div class="page-loading"><div class="spinner"></div><div>Memuat data...</div></div>`;
+
+  try {
+    const { from, to } = window._dateFilter;
+    const diffDays = Math.round((new Date(to) - new Date(from)) / 86400000);
+    // diffDays 0 = single day, 1 = 2 days (comparison), >1 = multi
+
+    const filters = { dateFrom: from, dateTo: to };
+    if (_fMp)   filters.marketplace = _fMp;
+    if (_user.role !== 'spv')  filters.advId = _user.id;
+    else if (_fAdv) filters.advId = _fAdv;
+
+    const allRows = await dbGetAllMarketplaceOrders(filters);
+
+    if (diffDays === 1) {
+      // Exactly 2 days → comparison mode
+      _cachedRows1 = allRows.filter(r => r.date === from);
+      _cachedRows2 = allRows.filter(r => r.date === to);
+      _cachedMeta  = { from, to, mode: 'comparison' };
+    } else if (diffDays === 0) {
+      // Single day
+      _cachedRows1 = allRows;
+      _cachedRows2 = null;
+      _cachedMeta  = { from, to, mode: 'single' };
+    } else {
+      // Multi-day aggregate
+      _cachedRows1 = allRows;
+      _cachedRows2 = null;
+      _cachedMeta  = { from, to, mode: 'multi' };
+    }
+
+    _renderPage();
+  } catch (e) {
+    document.getElementById('pageContent').innerHTML =
+      `<div class="page-loading"><div style="font-size:2rem">⚠️</div>
+       <div style="color:var(--danger)">${e.message}</div>
+       <button class="btn btn-outline btn-sm" onclick="refreshPage()">Coba Lagi</button></div>`;
+  }
+}
+
+// Re-render using cached data (called on sort change)
+function _renderPage() {
+  _destroyCharts();
+  const { from, to, mode } = _cachedMeta;
+  const isSPV = _user.role === 'spv';
+  if (mode === 'comparison') _doRenderComparison(isSPV, from, to);
+  else                       _doRenderSingle(isSPV, from, to, mode);
+}
+
+// ── Single / Multi Render ─────────────────────────────────────────────────────
+function _doRenderSingle(isSPV, from, to, mode) {
+  const rows  = _cachedRows1;
+  const stats = calcStats(rows);
+  const skuMap = _buildSkuData(rows);
+  const skus   = _sortedSkus(Array.from(skuMap.values()));
+  const overallH = _buildHours(rows);
+  const peakH    = _findPeak(overallH);
+  const modeLabel = from === to ? _fmtFull(from) : `${_fmtShort(from)} – ${_fmtShort(to)}`;
+  const modeIcon  = mode === 'single' ? '📅' : '📆';
+  const modeCls   = mode === 'single' ? 'single' : 'multi';
+
+  document.getElementById('pageContent').innerHTML = `
+    ${_htmlFilters(isSPV)}
+
+    <div class="mode-banner ${modeCls}">
+      <span style="font-size:1.25rem">${modeIcon}</span>
+      <span>${mode === 'single' ? 'Analisis Harian' : 'Analisis Rentang'} &middot;
+        <strong>${modeLabel}</strong></span>
+      <span style="margin-left:auto;font-size:.75rem;opacity:.7">
+        ${rows.filter(r => r.status !== 'dibatalkan').length} order valid · ${skus.length} SKU
+      </span>
+    </div>
+
+    <div class="stat-grid">
+      ${_statCard('primary', 'Total Omset', fmtFull(stats.totalOmset), `${stats.totalOrders} order valid`, '💰')}
+      ${_statCard('', 'Total Order', stats.totalOrders, 'Transaksi berhasil', '📋')}
+      ${_statCard('', 'Total Qty Terjual', stats.totalQty.toLocaleString('id-ID') + ' pcs', 'Unit produk terjual', '📦')}
+      ${_statCard('', 'Peak Hour',
+          peakH !== null ? `${String(peakH).padStart(2,'0')}:00` : '—',
+          peakH !== null ? `${overallH[peakH]} order di jam tersibuk` : 'Tidak ada data jam',
+          '⚡')}
+    </div>
+
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header">
+        <div class="card-header-left">
+          <h3>Distribusi Order per Jam</h3>
+          <div class="card-sub">Semua produk · ${modeLabel}</div>
+        </div>
+      </div>
+      <div class="chart-container" style="height:170px"><canvas id="overallChart"></canvas></div>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+      <div>
+        <h3 style="font-size:1rem;font-weight:800">Performa per SKU</h3>
+        <div style="font-size:.78rem;color:var(--text-3)">${skus.length} SKU · Grafik 24 jam per produk</div>
+      </div>
+    </div>
+
+    ${skus.length
+      ? `<div class="sku-grid">${skus.map((s, i) => _htmlSingleCard(s, i)).join('')}</div>`
+      : `<div class="card"><div class="empty"><div class="icon">📭</div>Tidak ada data di periode ini</div></div>`
+    }
+  `;
+
+  _syncFilters(isSPV);
+
+  // Init charts
+  _overallChart = _makeChart('overallChart', overallH, null, null, null);
+  skus.forEach((sku, i) => {
+    const peak = _findPeak(sku.hours);
+    const colors = sku.hours.map((_, h) =>
+      (h === peak && Math.max(...sku.hours) > 0) ? '#4361EE' : 'rgba(67,97,238,.2)'
+    );
+    _charts.set(i, _makeChart(`sku-chart-${i}`, sku.hours, null, null, null, colors));
+  });
+}
+
+// ── Comparison Render ─────────────────────────────────────────────────────────
+function _doRenderComparison(isSPV, date1, date2) {
+  const rows1 = _cachedRows1, rows2 = _cachedRows2;
+  const stats1 = calcStats(rows1), stats2 = calcStats(rows2);
+  const map1   = _buildSkuData(rows1), map2 = _buildSkuData(rows2);
+
+  // Union all SKUs from both days
+  const allKeys = new Set([...map1.keys(), ...map2.keys()]);
+  const emptyD  = { qty: 0, omset: 0, hours: Array(24).fill(0), orders: 0, product: '-' };
+  const combined = Array.from(allKeys).map(sku => ({
+    sku,
+    product: (map1.get(sku) || map2.get(sku))?.product || '-',
+    d1: map1.get(sku) || { ...emptyD },
+    d2: map2.get(sku) || { ...emptyD },
+  }));
+  const sorted = combined.sort((a, b) => {
+    const va = _sortBy === 'qty' ? a.d1.qty + a.d2.qty : a.d1.omset + a.d2.omset;
+    const vb = _sortBy === 'qty' ? b.d1.qty + b.d2.qty : b.d1.omset + b.d2.omset;
+    return vb - va;
+  });
+
+  const h1 = _buildHours(rows1), h2 = _buildHours(rows2);
+  const L1 = _fmtShort(date1), L2 = _fmtShort(date2);
+
+  function growBadge(v1, v2) {
+    if (!v2) return '';
+    const pct = ((v1 - v2) / v2 * 100).toFixed(1);
+    const pos = parseFloat(pct) >= 0;
+    return `<span class="growth ${pos ? 'pos' : 'neg'}">${pos ? '▲' : '▼'} ${Math.abs(pct)}%</span>`;
+  }
+
+  document.getElementById('pageContent').innerHTML = `
+    ${_htmlFilters(isSPV)}
+
+    <div class="mode-banner comparison">
+      <span style="font-size:1.25rem">📊</span>
+      <span>Perbandingan Harian &middot;
+        <strong style="color:var(--primary)">${L1}</strong>
+        <span style="color:var(--text-3);font-weight:400"> vs </span>
+        <strong style="color:#8A6400">${L2}</strong>
+      </span>
+      <div style="margin-left:auto;display:flex;gap:10px;align-items:center;font-size:.75rem">
+        <span style="display:flex;align-items:center;gap:4px;font-weight:700">
+          <span class="legend-dot" style="background:#4361EE"></span>${L1}
+        </span>
+        <span style="display:flex;align-items:center;gap:4px;font-weight:700;color:#8A6400">
+          <span class="legend-dot" style="background:#FFB703"></span>${L2}
+        </span>
+      </div>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card primary">
+        <div class="stat-label">Omset</div>
+        <div class="stat-value" style="font-size:1rem">${fmt(stats1.totalOmset)}</div>
+        <div style="font-size:.8rem;font-weight:700;color:rgba(255,255,255,.72);margin-top:4px">
+          ${fmt(stats2.totalOmset)} ${growBadge(stats1.totalOmset, stats2.totalOmset)}
+        </div>
+        <div class="stat-sub">${L1} vs ${L2}</div>
+        <div class="stat-icon">💰</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total Order</div>
+        <div class="stat-value">${stats1.totalOrders}</div>
+        <div style="font-size:.8rem;font-weight:700;color:var(--text-3);margin-top:4px">
+          ${stats2.totalOrders} ${growBadge(stats1.totalOrders, stats2.totalOrders)}
+        </div>
+        <div class="stat-sub">${L1} vs ${L2}</div>
+        <div class="stat-icon">📋</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total Qty</div>
+        <div class="stat-value">${stats1.totalQty}</div>
+        <div style="font-size:.8rem;font-weight:700;color:var(--text-3);margin-top:4px">
+          ${stats2.totalQty} ${growBadge(stats1.totalQty, stats2.totalQty)}
+        </div>
+        <div class="stat-sub">${L1} vs ${L2}</div>
+        <div class="stat-icon">📦</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Dibatalkan</div>
+        <div class="stat-value" style="color:var(--danger)">${stats1.cancelled}</div>
+        <div style="font-size:.8rem;font-weight:700;color:var(--text-3);margin-top:4px">
+          ${stats2.cancelled} di ${L2}
+        </div>
+        <div class="stat-sub">${L1} vs ${L2}</div>
+        <div class="stat-icon">❌</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header">
+        <div class="card-header-left">
+          <h3>Distribusi Order per Jam</h3>
+          <div class="card-sub">Perbandingan ${L1} vs ${L2} · semua produk</div>
+        </div>
+        <div style="display:flex;gap:12px;font-size:.78rem;font-weight:700;align-items:center">
+          <span style="display:flex;align-items:center;gap:5px">
+            <span class="legend-dot" style="background:#4361EE"></span>${L1}
+          </span>
+          <span style="display:flex;align-items:center;gap:5px;color:#8A6400">
+            <span class="legend-dot" style="background:#FFB703"></span>${L2}
+          </span>
+        </div>
+      </div>
+      <div class="chart-container" style="height:170px"><canvas id="overallChart"></canvas></div>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+      <div>
+        <h3 style="font-size:1rem;font-weight:800">Performa per SKU</h3>
+        <div style="font-size:.78rem;color:var(--text-3)">${sorted.length} SKU · Grafik 24 jam · ${L1} vs ${L2}</div>
+      </div>
+    </div>
+
+    ${sorted.length
+      ? `<div class="sku-grid">${sorted.map((item, i) => _htmlCmpCard(item, i, L1, L2)).join('')}</div>`
+      : `<div class="card"><div class="empty"><div class="icon">📭</div>Tidak ada data</div></div>`
+    }
+  `;
+
+  _syncFilters(isSPV);
+
+  // Init overall chart (comparison)
+  _overallChart = _makeChart('overallChart', h1, h2, L1, L2);
+
+  // Init per-SKU charts
+  sorted.forEach((item, i) => {
+    _charts.set(i, _makeChart(`sku-chart-${i}`, item.d1.hours, item.d2.hours, L1, L2));
+  });
+}
+
+// ── Card Templates ────────────────────────────────────────────────────────────
+function _htmlSingleCard(sku, idx) {
+  const medals = ['🥇', '🥈', '🥉'];
+  const rankEl = idx < 3
+    ? `<span class="rank-medal">${medals[idx]}</span>`
+    : `<span class="rank-num">#${idx + 1}</span>`;
+  const peak      = _findPeak(sku.hours);
+  const peakLabel = peak !== null ? `⚡ ${String(peak).padStart(2, '0')}:00` : 'No peak';
+  const name      = sku.product.length > 65 ? sku.product.slice(0, 65) + '…' : sku.product;
+
+  return `
+    <div class="sku-card">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+        ${rankEl}
+        <span style="font-weight:800;font-size:.92rem;color:var(--primary)">${sku.sku}</span>
+        <span class="peak-badge peak-1" style="margin-left:auto">${peakLabel}</span>
+      </div>
+      <div style="font-size:.77rem;color:var(--text-2);line-height:1.45;margin-bottom:10px;min-height:34px">${name}</div>
+      <div class="sku-stats-row">
+        <div class="sku-stat">
+          <div class="sku-stat-lbl">Qty Terjual</div>
+          <div class="sku-stat-val">${sku.qty.toLocaleString('id-ID')} pcs</div>
+        </div>
+        <div class="sku-stat">
+          <div class="sku-stat-lbl">Omset</div>
+          <div class="sku-stat-val accent">${fmt(sku.omset)}</div>
+        </div>
+        <div class="sku-stat">
+          <div class="sku-stat-lbl">Order</div>
+          <div class="sku-stat-val">${sku.orders}</div>
+        </div>
+      </div>
+      <div class="chart-container" style="height:105px">
+        <canvas id="sku-chart-${idx}"></canvas>
+      </div>
+    </div>
+  `;
+}
+
+function _htmlCmpCard(item, idx, L1, L2) {
+  const medals = ['🥇', '🥈', '🥉'];
+  const rankEl = idx < 3
+    ? `<span class="rank-medal">${medals[idx]}</span>`
+    : `<span class="rank-num">#${idx + 1}</span>`;
+  const name  = item.product.length > 65 ? item.product.slice(0, 65) + '…' : item.product;
+  const peak1 = _findPeak(item.d1.hours);
+  const peak2 = _findPeak(item.d2.hours);
+
+  function deltaHTML(v1, v2) {
+    if (!v2) return '';
+    const pct = ((v1 - v2) / v2 * 100).toFixed(0);
+    const pos = parseFloat(pct) >= 0;
+    return `<span class="growth ${pos ? 'pos' : 'neg'}" style="font-size:.62rem">${pos ? '▲' : '▼'}${Math.abs(pct)}%</span>`;
+  }
+
+  return `
+    <div class="sku-card">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+        ${rankEl}
+        <span style="font-weight:800;font-size:.92rem;color:var(--primary)">${item.sku}</span>
+        <div style="margin-left:auto;display:flex;gap:5px">
+          ${peak1 !== null ? `<span class="peak-badge peak-1">⚡ ${String(peak1).padStart(2,'0')}:00</span>` : ''}
+          ${peak2 !== null ? `<span class="peak-badge peak-2">⚡ ${String(peak2).padStart(2,'0')}:00</span>` : ''}
+        </div>
+      </div>
+      <div style="font-size:.77rem;color:var(--text-2);line-height:1.45;margin-bottom:10px;min-height:34px">${name}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+        <div class="day-box day-box-1">
+          <div style="font-size:.64rem;font-weight:800;color:var(--primary);margin-bottom:4px">${L1}</div>
+          <div style="font-weight:800;font-size:.9rem">${item.d1.qty} pcs ${deltaHTML(item.d1.qty, item.d2.qty)}</div>
+          <div style="font-size:.72rem;color:var(--text-3);margin-top:2px">${fmt(item.d1.omset)}</div>
+        </div>
+        <div class="day-box day-box-2">
+          <div style="font-size:.64rem;font-weight:800;color:#8A6400;margin-bottom:4px">${L2}</div>
+          <div style="font-weight:800;font-size:.9rem">${item.d2.qty} pcs</div>
+          <div style="font-size:.72rem;color:var(--text-3);margin-top:2px">${fmt(item.d2.omset)}</div>
+        </div>
+      </div>
+      <div class="chart-container" style="height:105px">
+        <canvas id="sku-chart-${idx}"></canvas>
+      </div>
+    </div>
+  `;
+}
+
+// ── Filter bar HTML ───────────────────────────────────────────────────────────
+function _htmlFilters(isSPV) {
+  return `
+    <div class="card" style="margin-bottom:18px;padding:11px 16px">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select class="ctrl-select" id="mpFilter" onchange="_fMp=this.value;refreshPage()">
+          <option value="">Semua Marketplace</option>
+          <option value="shopee">Shopee</option>
+          <option value="lazada">Lazada</option>
+          <option value="tiktok">TikTok</option>
+        </select>
+        ${isSPV ? `
+          <select class="ctrl-select" id="advFilter" onchange="_fAdv=this.value;refreshPage()">
+            <option value="">Semua ADV</option>
+            ${_profiles.map(p => `<option value="${p.id}">${p.name.split(' ')[0]}</option>`).join('')}
+          </select>
+        ` : ''}
+        <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
+          <span style="font-size:.76rem;font-weight:700;color:var(--text-3)">Urutkan:</span>
+          <button id="sortQty" class="date-preset ${_sortBy === 'qty' ? 'active' : ''}"
+            onclick="_sortBy='qty';_syncSortBtns();_renderPage()">Qty</button>
+          <button id="sortOmset" class="date-preset ${_sortBy === 'omset' ? 'active' : ''}"
+            onclick="_sortBy='omset';_syncSortBtns();_renderPage()">Omset</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function _syncFilters(isSPV) {
+  const mp = document.getElementById('mpFilter');
+  if (mp) mp.value = _fMp;
+  if (isSPV) {
+    const adv = document.getElementById('advFilter');
+    if (adv) adv.value = _fAdv;
+  }
+}
+
+function _syncSortBtns() {
+  document.getElementById('sortQty')?.classList.toggle('active', _sortBy === 'qty');
+  document.getElementById('sortOmset')?.classList.toggle('active', _sortBy === 'omset');
+}
+
+// ── Stat card helper ──────────────────────────────────────────────────────────
+function _statCard(cls, label, value, sub, icon) {
+  return `
+    <div class="stat-card ${cls}">
+      <div class="stat-label">${label}</div>
+      <div class="stat-value">${value}</div>
+      <div class="stat-sub">${sub}</div>
+      <div class="stat-icon">${icon}</div>
+    </div>
+  `;
+}
+
+// ── Data helpers ──────────────────────────────────────────────────────────────
+function _buildSkuData(rows) {
+  const valid = rows.filter(r => r.status !== 'dibatalkan');
+  const map = new Map();
+  valid.forEach(r => {
+    const sku = r.sku || '-';
+    if (!map.has(sku)) {
+      map.set(sku, { sku, product: r.product || '-', qty: 0, omset: 0, orders: 0, hours: Array(24).fill(0) });
+    }
+    const d = map.get(sku);
+    d.qty    += (r.qty   || 0);
+    d.omset  += (r.total || 0);
+    d.orders++;
+    if (r.order_hour != null && r.order_hour >= 0 && r.order_hour < 24) {
+      d.hours[r.order_hour]++;
+    }
+  });
+  return map;
+}
+
+function _buildHours(rows) {
+  const hours = Array(24).fill(0);
+  rows.filter(r => r.status !== 'dibatalkan' && r.order_hour != null && r.order_hour >= 0 && r.order_hour < 24)
+      .forEach(r => hours[r.order_hour]++);
+  return hours;
+}
+
+function _findPeak(hours) {
+  const max = Math.max(...hours);
+  return max > 0 ? hours.indexOf(max) : null;
+}
+
+function _sortedSkus(arr) {
+  return arr.sort((a, b) => _sortBy === 'qty' ? b.qty - a.qty : b.omset - a.omset);
+}
+
+function _fmtShort(d) {
+  return new Date(d + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+}
+function _fmtFull(d) {
+  return new Date(d + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+// ── Chart factory ─────────────────────────────────────────────────────────────
+function _destroyCharts() {
+  _charts.forEach(c => c.destroy());
+  _charts.clear();
+  if (_overallChart) { _overallChart.destroy(); _overallChart = null; }
+}
+
+function _makeChart(canvasId, hours1, hours2, label1, label2, customBg1) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return null;
+
+  const isComparison = !!hours2;
+  const gc = chartGridColor();
+  const tc = chartTextColor();
+  const peak1 = _findPeak(hours1);
+
+  const datasets = isComparison
+    ? [
+        { label: label1, data: hours1, backgroundColor: '#4361EE', borderRadius: 3, borderSkipped: false, barPercentage: .85 },
+        { label: label2, data: hours2, backgroundColor: '#FFB703', borderRadius: 3, borderSkipped: false, barPercentage: .85 },
+      ]
+    : [
+        {
+          data: hours1,
+          backgroundColor: customBg1 || hours1.map((_, h) =>
+            (h === peak1 && Math.max(...hours1) > 0) ? '#4361EE' : 'rgba(67,97,238,.2)'
+          ),
+          borderRadius: 3,
+          borderSkipped: false,
+        },
+      ];
+
+  return new Chart(canvas, {
+    type: 'bar',
+    data: { labels: HOUR_LABELS, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: isComparison,
+          position: 'top',
+          labels: { font: { size: 11 }, color: tc, boxWidth: 11, padding: 8 },
+        },
+        tooltip: {
+          callbacks: {
+            title: ctx => ctx[0].label,
+            label: ctx => ` ${ctx.dataset.label ? ctx.dataset.label + ': ' : ''}${ctx.raw} order`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: {
+            color: tc,
+            font: { size: 9 },
+            // Show every 4 hours to avoid crowding: 00, 04, 08, 12, 16, 20
+            callback: (_, i) => i % 4 === 0 ? HOUR_LABELS[i].slice(0, 2) : '',
+            maxRotation: 0,
+          },
+        },
+        y: {
+          grid: { color: gc },
+          ticks: { color: tc, font: { size: 10 }, precision: 0, stepSize: 1 },
+          min: 0,
+        },
+      },
+    },
+  });
+}
+</script>
+</body>
+</html>
