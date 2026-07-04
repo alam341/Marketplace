@@ -1,6 +1,7 @@
 const PAGES = [
   { id: 'dashboard',   label: 'Dashboard',   icon: '⊞',  file: 'dashboard.html'   },
   { id: 'report',      label: 'Report',      icon: '📊', file: 'report.html'      },
+  { id: 'analisis',    label: 'Analisis',    icon: '📈', file: 'analisis.html'    },
   { id: 'product',     label: 'Product',     icon: '📦', file: 'product.html'     },
   { id: 'transaction', label: 'Transaction', icon: '💳', file: 'transaction.html' },
   { id: 'rekap',       label: 'Rekap SKU',   icon: '📋', file: 'rekap.html'       },
