@@ -20,6 +20,7 @@
     <div class="page">
       <div id="dateFilterContainer"></div>
       <div id="welcomeSlot"></div>
+      <div id="dashAlerts"></div>
       <div id="pageContent"></div>
     </div>
   </div>
@@ -71,6 +72,7 @@ async function refreshPage() {
     ]);
 
     renderDashboard(trx, prevTrx);
+    loadDashboardAlerts('dashAlerts', { from, to }, _user.role !== 'spv' ? _user.id : null);
   } catch(e) {
     showError('Gagal memuat data: ' + e.message);
   }
