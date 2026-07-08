@@ -41,10 +41,12 @@ function trCardState(stage) {
 }
 
 // Dikonfirmasi dari resi asli tgl 2026-07-08: milestone_code 1 = "Preparing to ship"
-// (Manifested/Kurir ditugaskan), milestone_code 5 = "In transit" (pickup s/d hub transit).
-// Kode buat "OTW"/"Sampai"/"Bermasalah" BELUM ada contoh nyata — kalau hasil cek meleset
-// di status itu, minta resi asli buat kalibrasi ulang lalu tambah di sini.
-const SPX_STAGE_BY_MILESTONE = { 1: 'DIKIRIM', 5: 'KOTA_TUJUAN' };
+// (Manifested/Kurir ditugaskan), 5 = "In transit" (pickup s/d hub transit),
+// 6 = "Out for delivery" ("Pesanan dalam proses pengantaran"),
+// 8 = "Delivered" ("Pesanan tiba di alamat tujuan, diterima oleh Yang bersangkutan").
+// Kode buat "Bermasalah/Retur" BELUM ada contoh nyata — kalau hasil cek meleset,
+// minta resi asli buat kalibrasi ulang lalu tambah di sini.
+const SPX_STAGE_BY_MILESTONE = { 1: 'DIKIRIM', 5: 'KOTA_TUJUAN', 6: 'OTW', 8: 'SAMPAI' };
 const TR_STAGE_ORDER = ['DIKIRIM', 'KOTA_TUJUAN', 'OTW', 'SAMPAI'];
 
 function mapSpxStage(apiData) {
