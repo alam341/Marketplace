@@ -88,6 +88,7 @@ async function dbBulkInsertMarketplaceOrders(marketplace, rows, storeName = '', 
     status:          r.status,
     store_name:      storeName,
     order_hour:      r.order_hour ?? null,
+    ekspedisi:       r.ekspedisi || null,
     upload_batch_id: batchId,
     adv_id:          session.user.id,
   }));
@@ -322,6 +323,32 @@ function calcStats(transactions) {
     totalQty:    valid.reduce((s, t) => s + (t.qty || 0), 0),
     cancelled:   transactions.filter(t => isCancelled(t)).length,
   };
+}
+
+// ── Tracking Resi ─────────────────────────────────────────────────────────────
+const TRACKABLE_TABLES = [
+  { table: 'shopee_orders', marketplace: 'shopee' },
+  { table: 'tiktok_orders', marketplace: 'tiktok' },
+  { table: 'lazada_orders', marketplace: 'lazada' },
+];
+
+async function dbGetTrackableOrders(filters = {}) {
+  const results = await Promise.all(TRACKABLE_TABLES.map(async ({ table, marketplace }) => {
+    let q = _sb.from(table)
+      .select('id, date, sku, product, status, ekspedisi, status_resi, status_resi_step, status_resi_updated_at, adv_id, store_name, profiles(id, name, avatar)')
+      .not('id', 'is', null)
+      .order('date', { ascending: false });
+    if (filters.advId) q = q.eq('adv_id', filters.advId);
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data || []).map(r => ({ ...r, marketplace, _table: table }));
+  }));
+  return results.flat().sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+
+async function dbUpdateTrackingStatus(table, id, patch) {
+  const { error } = await _sb.from(table).update(patch).eq('id', id);
+  if (error) throw error;
 }
 
 // ── Real-time subscription ─────────────────────────────────────────────────────

@@ -21,6 +21,7 @@ const MP_CONFIG = {
       discount:   h => _findCol(h, ['diskon dari penjual', 'diskon penjual']),
       total:      h => null, // dihitung: (unit_price * qty) - discount
       status:     h => _findCol(h, ['status pesanan']),
+      ekspedisi:  h => _findCol(h, ['opsi pengiriman']),
     },
   },
   tiktok: {
@@ -37,6 +38,7 @@ const MP_CONFIG = {
       discount:   h => _findCol(h, ['sku seller discount', 'seller discount']),
       total:      h => null, // dihitung: (unit_price * qty) - discount
       status:     h => _findCol(h, ['order status']),
+      ekspedisi:  h => _findCol(h, ['shipping provider name']),
     },
   },
   lazada: {
@@ -52,12 +54,22 @@ const MP_CONFIG = {
       unit_price: h => _findCol(h, ['unitprice']),
       total:      h => null, // dihitung: qty * unit_price
       status:     h => _findCol(h, ['status']),
+      ekspedisi:  h => _findCol(h, ['shippingprovider']),
     },
   },
 };
 
+// Exact match diutamakan dulu sebelum substring — Lazada punya kolom mirip
+// ("trackingCode" vs "cdTrackingCode", "shippingProvider" vs "cdShippingProvider")
+// yang bisa ketuker kalau cuma dicek pakai .includes().
 function _findCol(headers, keywords) {
-  return headers.find(h => keywords.some(k => h.toLowerCase().replace(/\s+/g,'').includes(k.replace(/\s+/g,'')))) || null;
+  const norm = h => String(h || '').toLowerCase().replace(/\s+/g, '');
+  for (const k of keywords) {
+    const kn = k.replace(/\s+/g, '');
+    const exact = headers.find(h => norm(h) === kn);
+    if (exact) return exact;
+  }
+  return headers.find(h => keywords.some(k => norm(h).includes(k.replace(/\s+/g, '')))) || null;
 }
 
 function _detectMarketplace(headers) {
@@ -66,6 +78,29 @@ function _detectMarketplace(headers) {
     if (cfg.detect(h)) return mp;
   }
   return null;
+}
+
+// ── Normalize ekspedisi ────────────────────────────────────────────────────────
+// Shopee: "Reguler (Cashless)-SPX Standard" -> ambil bagian setelah tanda "-" terakhir
+function _normalizeEkspedisi(raw) {
+  let s = String(raw || '').trim();
+  if (!s) return '';
+  if (s.includes('-')) s = s.split('-').pop().trim();
+  const up = s.toUpperCase();
+  if (up.includes('SPX'))       return 'SPX';
+  // "Pos Reguler/Ekonomi" di Shopee BUKAN POS Indonesia asli — resinya di-wrap kode
+  // internal Shopee ("SHPE...", dikonfirmasi 404 di API SPX & beda format dari AWB POS
+  // asli), jadi jangan dilabel "POS" (nyiratin bisa dicek API POS publik, padahal enggak).
+  if (up.includes('POS'))       return 'SHOPEE_HEMAT';
+  if (up.includes('JNE'))       return 'JNE';
+  if (up.includes('J&T') || up.includes('JNT')) return 'J&T';
+  if (up.includes('ANTERAJA'))  return 'ANTERAJA';
+  if (up.includes('SICEPAT'))   return 'SICEPAT';
+  if (up.includes('NINJA'))     return 'NINJA';
+  if (up.includes('ID EXPRESS') || up.includes('IDEXPRESS')) return 'IDEXPRESS';
+  if (up.includes('LION'))      return 'LION';
+  if (up.includes('WAHANA'))    return 'WAHANA';
+  return up;
 }
 
 // ── Normalize status ──────────────────────────────────────────────────────────
@@ -184,6 +219,7 @@ function _parseRows(rows, mp, mapping) {
       const total      = Math.max(0, (unit_price * qtyRaw) - discount);
       const rawDate    = get(mapping.date);
       const order_hour = _parseHour(rawDate);
+      const ekspedisi  = _normalizeEkspedisi(get(mapping.ekspedisi));
       return {
         id:         String(get(mapping.id) || ('IMP-' + mp + '-' + i)).trim(),
         date:       _parseDate(rawDate),
@@ -194,6 +230,7 @@ function _parseRows(rows, mp, mapping) {
         total,
         status,
         order_hour,
+        ekspedisi,
         marketplace: mp,
       };
     })

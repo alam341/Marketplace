@@ -4,6 +4,7 @@ const PAGES = [
   { id: 'analisis',    label: 'Analisis',    icon: '📈', file: 'analisis.html'    },
   { id: 'product',     label: 'Product',     icon: '📦', file: 'product.html'     },
   { id: 'transaction', label: 'Transaction', icon: '💳', file: 'transaction.html' },
+  { id: 'tracking',    label: 'Tracking Resi', icon: '🚚', file: 'tracking.html'  },
   { id: 'rekap',       label: 'Rekap SKU',   icon: '📋', file: 'rekap.html'       },
 ];
 
