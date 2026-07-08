@@ -239,10 +239,147 @@ function trEffectiveStage(o) {
   return o.status_resi;
 }
 
+// ── Date Range Picker (dropdown + kalender, default Bulan Ini) ─────────────────
+// Diporting dari pola trDrp* di AdsyCRM, disederhanakan: kolom "date" di sini
+// cuma string YYYY-MM-DD (bukan timestamp), jadi gak perlu konversi timezone WIB.
+const DRP_MONTHS = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+const DRP_DAYS   = ['Min','Sen','Sel','Rab','Kam','Jum','Sab'];
+
+function trYmd(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function drpFmtDate(d) {
+  if (!d) return '—';
+  return `${d.getDate()} ${DRP_MONTHS[d.getMonth()].slice(0,3)} ${d.getFullYear()}`;
+}
+
+const _trToday = new Date();
+let trFilterStart = new Date(_trToday.getFullYear(), _trToday.getMonth(), 1);
+let trFilterEnd   = new Date(_trToday.getFullYear(), _trToday.getMonth(), _trToday.getDate());
+let trDrpSelStart = trFilterStart, trDrpSelEnd = trFilterEnd;
+let trDrpViewYear = _trToday.getFullYear(), trDrpViewMonth = _trToday.getMonth();
+let trDrpLabelText = 'Bulan Ini';
+
+function trDrpToggle() {
+  const dd = document.getElementById('trDrp-dropdown');
+  dd.classList.toggle('open');
+  if (dd.classList.contains('open')) { trDrpRender(); document.addEventListener('click', trDrpOutside); }
+  else document.removeEventListener('click', trDrpOutside);
+}
+function trDrpClose() {
+  document.getElementById('trDrp-dropdown').classList.remove('open');
+  document.removeEventListener('click', trDrpOutside);
+}
+function trDrpOutside(e) {
+  const dd = document.getElementById('trDrp-dropdown'), tr = document.getElementById('trDrp-trigger');
+  if (!dd.contains(e.target) && !tr.contains(e.target)) trDrpClose();
+}
+function _trDrpMarkActive(btn) {
+  document.querySelectorAll('#trDrp-dropdown .drp-preset').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+function trDrpPreset(days, label, btn) {
+  const t = new Date();
+  trDrpSelEnd = new Date(t.getFullYear(), t.getMonth(), t.getDate());
+  const s = new Date(t); s.setDate(s.getDate() - (days - 1));
+  trDrpSelStart = new Date(s.getFullYear(), s.getMonth(), s.getDate());
+  _trDrpMarkActive(btn); trDrpUpdateSel(); trDrpRender();
+}
+function trDrpPresetYesterday(btn) {
+  const y = new Date(); y.setDate(y.getDate() - 1);
+  trDrpSelStart = trDrpSelEnd = new Date(y.getFullYear(), y.getMonth(), y.getDate());
+  _trDrpMarkActive(btn); trDrpUpdateSel(); trDrpRender();
+}
+function trDrpPresetThisMonth(btn) {
+  const t = new Date();
+  trDrpSelStart = new Date(t.getFullYear(), t.getMonth(), 1);
+  trDrpSelEnd   = new Date(t.getFullYear(), t.getMonth(), t.getDate());
+  _trDrpMarkActive(btn); trDrpUpdateSel(); trDrpRender();
+}
+function trDrpPresetLastMonth(btn) {
+  const t = new Date();
+  trDrpSelStart = new Date(t.getFullYear(), t.getMonth() - 1, 1);
+  trDrpSelEnd   = new Date(t.getFullYear(), t.getMonth(), 0);
+  _trDrpMarkActive(btn); trDrpUpdateSel(); trDrpRender();
+}
+function trDrpUpdateSel() {
+  document.getElementById('trDrp-sel-start').textContent = drpFmtDate(trDrpSelStart);
+  document.getElementById('trDrp-sel-end').textContent   = drpFmtDate(trDrpSelEnd);
+}
+function trDrpApply() {
+  if (!trDrpSelStart) return;
+  const endSel = trDrpSelEnd || trDrpSelStart;
+  trFilterStart = trDrpSelStart;
+  trFilterEnd   = endSel;
+  trDrpLabelText = `${drpFmtDate(trFilterStart)} — ${drpFmtDate(trFilterEnd)}`;
+  trDrpClose();
+  loadTracking();
+}
+function trDrpClickDay(y, m, d) {
+  const clicked = new Date(y, m, d);
+  if (!trDrpSelStart || (trDrpSelStart && trDrpSelEnd)) {
+    trDrpSelStart = clicked; trDrpSelEnd = null;
+  } else if (clicked < trDrpSelStart) {
+    trDrpSelEnd = trDrpSelStart; trDrpSelStart = clicked;
+  } else {
+    trDrpSelEnd = clicked;
+  }
+  document.querySelectorAll('#trDrp-dropdown .drp-preset').forEach(b => b.classList.remove('active'));
+  trDrpUpdateSel(); trDrpRender();
+}
+function trDrpRender() {
+  drpMakeCalendar('trDrp-cal', trDrpSelStart, trDrpSelEnd, 'trDrpClickDay', 'trDrpNav', trDrpViewYear, trDrpViewMonth);
+}
+function trDrpNav(dir) {
+  trDrpViewMonth += dir;
+  if (trDrpViewMonth > 11) { trDrpViewMonth = 0; trDrpViewYear++; }
+  if (trDrpViewMonth < 0)  { trDrpViewMonth = 11; trDrpViewYear--; }
+  trDrpRender();
+}
+function drpMakeCalendar(calId, selStart, selEnd, clickFn, navFn, viewYear, viewMonth) {
+  const firstDay    = new Date(viewYear, viewMonth, 1).getDay();
+  const startPad    = firstDay === 0 ? 6 : firstDay - 1;
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const prevDays    = new Date(viewYear, viewMonth, 0).getDate();
+  const today = new Date();
+
+  let html = `<div class="drp-cal-hdr">
+      <button class="drp-nav" onclick="${navFn}(-1)">‹</button>
+      <div class="drp-cal-title">${DRP_MONTHS[viewMonth]} ${viewYear}</div>
+      <button class="drp-nav" onclick="${navFn}(1)">›</button>
+    </div>
+    <div class="drp-days-hdr">${DRP_DAYS.map(d => `<span>${d}</span>`).join('')}</div>
+    <div class="drp-days">`;
+
+  for (let i = startPad; i > 0; i--) html += `<button class="drp-day other-month">${prevDays - i + 1}</button>`;
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const cur = new Date(viewYear, viewMonth, d);
+    const isToday = viewYear === today.getFullYear() && viewMonth === today.getMonth() && d === today.getDate();
+    const isStart = selStart && cur.getTime() === new Date(selStart.getFullYear(), selStart.getMonth(), selStart.getDate()).getTime();
+    const isEnd   = selEnd   && cur.getTime() === new Date(selEnd.getFullYear(), selEnd.getMonth(), selEnd.getDate()).getTime();
+    const inRange = selStart && selEnd && cur > selStart && cur < selEnd;
+    let cls = 'drp-day';
+    if (isStart && isEnd) cls += ' selected';
+    else if (isStart) cls += ' range-start';
+    else if (isEnd)   cls += ' range-end';
+    else if (inRange) cls += ' in-range';
+    if (isToday) cls += ' today';
+    html += `<button class="${cls}" onclick="${clickFn}(${viewYear},${viewMonth},${d})">${d}</button>`;
+  }
+
+  const total = startPad + daysInMonth;
+  const rem = total % 7 === 0 ? 0 : 7 - (total % 7);
+  for (let d = 1; d <= rem; d++) html += `<button class="drp-day other-month">${d}</button>`;
+
+  html += '</div>';
+  document.getElementById(calId).innerHTML = html;
+}
+
 async function loadTracking() {
   showLoading();
   try {
-    const filters = {};
+    const filters = { dateFrom: trYmd(trFilterStart), dateTo: trYmd(trFilterEnd) };
     if (_user.role !== 'spv') filters.advId = _user.id;
     _trkOrders = await dbGetTrackableOrders(filters);
     renderTrackingPage();
@@ -284,7 +421,38 @@ function renderTrackingPage() {
     <div class="card">
       <div class="card-header">
         <div class="card-header-left"><h3>Tracking Resi</h3><div class="card-sub">Monitor status pengiriman semua order</div></div>
-        <button class="btn btn-primary btn-sm" id="trRefreshBtn" onclick="trRefreshAll()">🔄 Refresh Semua</button>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <div class="drp-wrap">
+            <button class="drp-trigger" onclick="trDrpToggle()" id="trDrp-trigger">
+              <span>📅</span><span id="trDrp-label">${trDrpLabelText}</span><span style="color:var(--text-3)">▾</span>
+            </button>
+            <div class="drp-dropdown" id="trDrp-dropdown">
+              <div class="drp-presets">
+                <button class="drp-preset" onclick="trDrpPreset(1,'Hari Ini',this)">Hari Ini</button>
+                <button class="drp-preset" onclick="trDrpPresetYesterday(this)">Kemarin</button>
+                <hr style="border:none;border-top:1px solid var(--border);margin:6px 0">
+                <button class="drp-preset" onclick="trDrpPreset(7,'7 Hari Terakhir',this)">7 Hari Terakhir</button>
+                <button class="drp-preset" onclick="trDrpPreset(14,'14 Hari Terakhir',this)">14 Hari Terakhir</button>
+                <button class="drp-preset" onclick="trDrpPreset(30,'30 Hari Terakhir',this)">30 Hari Terakhir</button>
+                <button class="drp-preset" onclick="trDrpPreset(90,'90 Hari Terakhir',this)">90 Hari Terakhir</button>
+                <hr style="border:none;border-top:1px solid var(--border);margin:6px 0">
+                <button class="drp-preset active" onclick="trDrpPresetThisMonth(this)">Bulan Ini</button>
+                <button class="drp-preset" onclick="trDrpPresetLastMonth(this)">Bulan Lalu</button>
+              </div>
+              <div style="display:flex;flex-direction:column;flex:1">
+                <div class="drp-cal" id="trDrp-cal"></div>
+                <div class="drp-footer">
+                  <div class="drp-selected-txt"><span id="trDrp-sel-start">—</span> → <span id="trDrp-sel-end">—</span></div>
+                  <div style="display:flex;gap:6px">
+                    <button class="drp-cancel" onclick="trDrpClose()">Batal</button>
+                    <button class="drp-apply" onclick="trDrpApply()">Terapkan</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <button class="btn btn-primary btn-sm" id="trRefreshBtn" onclick="trRefreshAll()">🔄 Refresh Semua</button>
+        </div>
       </div>
 
       <div class="tr-toolbar">

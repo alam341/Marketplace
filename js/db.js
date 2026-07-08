@@ -340,7 +340,9 @@ async function dbGetTrackableOrders(filters = {}) {
       .select('id, date, sku, product, qty, total, status, ekspedisi, buyer, kota_tujuan, status_resi, status_resi_step, status_resi_updated_at, status_resi_detail, adv_id, store_name, profiles(id, name, avatar)')
       .not('id', 'is', null)
       .order('date', { ascending: false });
-    if (filters.advId) q = q.eq('adv_id', filters.advId);
+    if (filters.advId)    q = q.eq('adv_id', filters.advId);
+    if (filters.dateFrom) q = q.gte('date', filters.dateFrom);
+    if (filters.dateTo)   q = q.lte('date', filters.dateTo);
     const { data, error } = await q;
     if (error) throw error;
     return (data || []).map(r => ({ ...r, marketplace, _table: table }));
