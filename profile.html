@@ -119,8 +119,31 @@ function renderProfilePage() {
           </div>
         </div>
       </div>
+
+      <!-- Nomor WA -->
+      <div class="card" style="margin-top:18px">
+        <div class="card-header"><div class="card-header-left"><h3>Nomor WhatsApp</h3><div class="card-sub">Buat notif otomatis kalau ada paket bermasalah/retur di order kamu</div></div></div>
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <input type="text" id="noWaInput" class="ctrl-input" style="flex:1" placeholder="Contoh: 6281234567890" value="${_user.no_wa || ''}">
+          <button class="btn btn-primary btn-sm" onclick="saveNoWa()">Simpan</button>
+        </div>
+        <div id="noWaStatus" style="margin-top:8px;font-size:.82rem"></div>
+      </div>
     </div>
   `;
+}
+
+async function saveNoWa() {
+  const val = document.getElementById('noWaInput').value.trim();
+  setStatus('noWaStatus', '⏳ Menyimpan...', 'var(--text-3)');
+  try {
+    await dbUpdateProfile({ no_wa: val || null });
+    _user.no_wa = val;
+    sessionStorage.removeItem('currentUser');
+    setStatus('noWaStatus', '✅ Nomor WA disimpan!', '#06C270');
+  } catch(e) {
+    setStatus('noWaStatus', '❌ Gagal: ' + e.message, 'var(--danger)');
+  }
 }
 
 async function uploadPhoto(input) {
