@@ -192,6 +192,19 @@ async function checkResiAuto(row) {
   throw new Error('Ekspedisi tidak didukung');
 }
 
+// ── Notif WA (Fonnte) ────────────────────────────────────────────────────────────
+async function sendFonnteWA(target, message) {
+  if (!process.env.FONNTE_TOKEN || !target) return;
+  const body = new URLSearchParams({ target, message }).toString();
+  await fetch('https://api.fonnte.com/send', {
+    method: 'POST',
+    headers: { Authorization: process.env.FONNTE_TOKEN, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body,
+  });
+}
+
+const PROBLEM_STAGES = ['BERMASALAH', 'RETUR'];
+
 // ── Supabase REST helper ────────────────────────────────────────────────────────
 async function sbFetch(path, options = {}) {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
@@ -222,14 +235,14 @@ export default async function handler(req, res) {
   }
 
   const ekspedisiFilter = AUTO_EKSPEDISI_LIST.map(e => encodeURIComponent(e)).join(',');
-  let checked = 0, updated = 0, failed = 0;
+  let checked = 0, updated = 0, failed = 0, notified = 0;
   const errors = [];
 
   for (const table of TABLES) {
     let rows;
     try {
       rows = await sbFetch(
-        `${table}?select=id,ekspedisi,kota_tujuan,status_resi&ekspedisi=in.(${ekspedisiFilter})&status_resi=not.in.(SAMPAI,RETUR)&id=not.like.IMP-*`
+        `${table}?select=id,ekspedisi,kota_tujuan,status_resi,product,adv_id,profiles(no_wa,name)&ekspedisi=in.(${ekspedisiFilter})&status_resi=not.in.(SAMPAI,RETUR)&id=not.like.IMP-*`
       );
     } catch (e) {
       errors.push(`${table}: gagal fetch (${e.message})`);
@@ -253,6 +266,17 @@ export default async function handler(req, res) {
             }),
           });
           updated++;
+
+          // Notif WA cuma pas TRANSISI baru ke Bermasalah/Retur — bukan re-notif tiap cron
+          // kalau statusnya emang udah bermasalah dari run sebelumnya.
+          const wasProblem = PROBLEM_STAGES.includes(row.status_resi);
+          const isProblem  = PROBLEM_STAGES.includes(stage);
+          const noWa = row.profiles?.no_wa;
+          if (isProblem && !wasProblem && noWa) {
+            const label = stage === 'RETUR' ? 'RETUR' : 'BERMASALAH';
+            const msg = `⚠️ Order kamu (resi ${row.id}, produk "${row.product || '-'}") sekarang berstatus *${label}*. Cek detailnya di menu Tracking Resi ya.`;
+            try { await sendFonnteWA(noWa, msg); notified++; } catch (e) { /* gak fatal — status_resi tetep keupdate */ }
+          }
         } catch (e) {
           failed++;
           errors.push(`${table}/${row.id}: ${e.message}`);
@@ -261,5 +285,5 @@ export default async function handler(req, res) {
     }
   }
 
-  res.status(200).json({ checked, updated, failed, errors: errors.slice(0, 20) });
+  res.status(200).json({ checked, updated, failed, notified, errors: errors.slice(0, 20) });
 }
