@@ -350,6 +350,22 @@ async function dbGetTrackableOrders(filters = {}) {
   return results.flat().sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
+// Ringan — cuma buat banner alert dashboard, gak tarik semua kolom kayak dbGetTrackableOrders
+async function dbGetProblemOrders(filters = {}) {
+  const results = await Promise.all(TRACKABLE_TABLES.map(async ({ table, marketplace }) => {
+    let q = _sb.from(table)
+      .select('id, date, product, ekspedisi, status_resi')
+      .in('status_resi', ['BERMASALAH', 'RETUR']);
+    if (filters.advId)    q = q.eq('adv_id', filters.advId);
+    if (filters.dateFrom) q = q.gte('date', filters.dateFrom);
+    if (filters.dateTo)   q = q.lte('date', filters.dateTo);
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data || []).map(r => ({ ...r, marketplace }));
+  }));
+  return results.flat();
+}
+
 async function dbUpdateTrackingStatus(table, id, patch) {
   const { error } = await _sb.from(table).update(patch).eq('id', id);
   if (error) throw error;

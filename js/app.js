@@ -115,6 +115,35 @@ function renderLayout(activePage, user) {
 function openSidebar()  { document.getElementById('sidebar')?.classList.add('open'); document.getElementById('sidebarOverlay')?.classList.add('open'); }
 function closeSidebar() { document.getElementById('sidebar')?.classList.remove('open'); document.getElementById('sidebarOverlay')?.classList.remove('open'); }
 
+// ── Dashboard Alerts (paket bermasalah/retur) ──────────────────────────────────
+async function loadDashboardAlerts(containerId, dateFilter, advId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  try {
+    const filters = { dateFrom: dateFilter.from, dateTo: dateFilter.to };
+    if (advId) filters.advId = advId;
+    const problems = await dbGetProblemOrders(filters);
+    if (!problems.length) { el.innerHTML = ''; return; }
+
+    const returCount = problems.filter(p => p.status_resi === 'RETUR').length;
+    const undelCount = problems.length - returCount;
+    el.innerHTML = `
+      <div class="card" style="margin-bottom:18px;border-left:4px solid var(--danger);cursor:pointer" onclick="location.href='tracking.html'">
+        <div style="display:flex;align-items:center;gap:14px">
+          <div style="font-size:1.6rem">⚠️</div>
+          <div style="flex:1">
+            <div style="font-weight:800;color:var(--text-1);font-size:.9rem">${problems.length} paket butuh perhatian</div>
+            <div style="font-size:.78rem;color:var(--text-3);margin-top:2px">
+              ${undelCount ? `${undelCount} bermasalah` : ''}${undelCount && returCount ? ' · ' : ''}${returCount ? `${returCount} retur` : ''} — klik buat lihat di Tracking Resi
+            </div>
+          </div>
+          <div style="color:var(--text-3)">→</div>
+        </div>
+      </div>
+    `;
+  } catch (e) { el.innerHTML = ''; }
+}
+
 // ── Loading ───────────────────────────────────────────────────────────────────
 function showLoading(id = 'pageContent') {
   const el = document.getElementById(id);
