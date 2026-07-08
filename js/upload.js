@@ -22,6 +22,7 @@ const MP_CONFIG = {
       total:      h => null, // dihitung: (unit_price * qty) - discount
       status:     h => _findCol(h, ['status pesanan']),
       ekspedisi:  h => _findCol(h, ['opsi pengiriman']),
+      buyer:      h => _findCol(h, ['username (pembeli)', 'username']),
     },
   },
   tiktok: {
@@ -39,6 +40,7 @@ const MP_CONFIG = {
       total:      h => null, // dihitung: (unit_price * qty) - discount
       status:     h => _findCol(h, ['order status']),
       ekspedisi:  h => _findCol(h, ['shipping provider name']),
+      buyer:      h => _findCol(h, ['buyer username']),
     },
   },
   lazada: {
@@ -55,6 +57,7 @@ const MP_CONFIG = {
       total:      h => null, // dihitung: qty * unit_price
       status:     h => _findCol(h, ['status']),
       ekspedisi:  h => _findCol(h, ['shippingprovider']),
+      buyer:      h => _findCol(h, ['customername']),
     },
   },
 };
@@ -88,10 +91,11 @@ function _normalizeEkspedisi(raw) {
   if (s.includes('-')) s = s.split('-').pop().trim();
   const up = s.toUpperCase();
   if (up.includes('SPX'))       return 'SPX';
-  // "Pos Reguler/Ekonomi" di Shopee BUKAN POS Indonesia asli — resinya di-wrap kode
-  // internal Shopee ("SHPE...", dikonfirmasi 404 di API SPX & beda format dari AWB POS
-  // asli), jadi jangan dilabel "POS" (nyiratin bisa dicek API POS publik, padahal enggak).
-  if (up.includes('POS'))       return 'SHOPEE_HEMAT';
+  // "Pos Reguler/Ekonomi" di Shopee itu beneran POS Indonesia, tapi resi yang
+  // ditampilkan masih di-wrap kode internal Shopee ("SHPE...", dikonfirmasi 404 di
+  // API SPX & beda format dari AWB POS asli yang biasanya cuma angka) — kemungkinan
+  // besar belum bisa langsung dicek API POS publik (bosampuh.id) tanpa AWB asli.
+  if (up.includes('POS'))       return 'POS';
   if (up.includes('JNE'))       return 'JNE';
   if (up.includes('J&T') || up.includes('JNT')) return 'J&T';
   if (up.includes('ANTERAJA'))  return 'ANTERAJA';
@@ -220,6 +224,7 @@ function _parseRows(rows, mp, mapping) {
       const rawDate    = get(mapping.date);
       const order_hour = _parseHour(rawDate);
       const ekspedisi  = _normalizeEkspedisi(get(mapping.ekspedisi));
+      const buyer      = String(get(mapping.buyer) || '').trim();
       return {
         id:         String(get(mapping.id) || ('IMP-' + mp + '-' + i)).trim(),
         date:       _parseDate(rawDate),
@@ -231,6 +236,7 @@ function _parseRows(rows, mp, mapping) {
         status,
         order_hour,
         ekspedisi,
+        buyer,
         marketplace: mp,
       };
     })

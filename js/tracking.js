@@ -107,7 +107,7 @@ async function loadTracking() {
 
 function renderTrackingPage() {
   document.getElementById('pageContent').innerHTML = `
-    <div class="stat-grid">
+    <div class="stat-grid cols-5">
       <div class="stat-card clickable" id="trStatCard-SEMUA" onclick="trSetFilter('SEMUA')">
         <div class="stat-label">Total</div>
         <div class="stat-value" id="trStatTotal">0</div>
@@ -210,18 +210,27 @@ function trStepperHtml(stage) {
   }).join('')}</div>`;
 }
 
+const TR_AVATAR_PALETTE = ['#4361EE', '#7B2FBE', '#06C270', '#FFB703', '#EF233C', '#0EA5E9', '#7C3AED', '#0891B2', '#65A30D', '#C026D3'];
+function trAvatarColor(name) {
+  const s = name || '?';
+  let hash = 0;
+  for (let i = 0; i < s.length; i++) hash = (hash * 31 + s.charCodeAt(i)) % 1000000007;
+  return TR_AVATAR_PALETTE[Math.abs(hash) % TR_AVATAR_PALETTE.length];
+}
+
 function trCardHtml(o) {
   const stage = trEffectiveStage(o);
   const meta  = TR_STAGE_META[stage] || TR_STAGE_META.BELUM_DICEK;
-  const color = assignUserColor(_profiles, o.adv_id);
   const hasResi = !String(o.id).startsWith('IMP-');
+  const buyerName = o.buyer || 'Pembeli';
+  const initial = buyerName.trim().charAt(0).toUpperCase() || '?';
 
   return `<div class="tr-card" onclick="trOpenDetail('${trOrderKey(o)}')">
     <div class="tr-card-top">
       <div class="tr-card-left">
-        ${renderAvatar(o.profiles, 'md', color)}
+        <div class="tr-avatar" style="background:${trAvatarColor(buyerName)}">${initial}</div>
         <div style="min-width:0">
-          <div class="tr-name">${o.profiles?.name?.split(' ')[0] || '-'}</div>
+          <div class="tr-name">${buyerName}</div>
           <div class="tr-sub">${o.store_name || '-'}</div>
           <div class="tr-meta">
             <span class="badge ${meta.badge}">${meta.label}</span>
