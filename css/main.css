@@ -424,7 +424,8 @@ tr:hover td { background: rgba(67,97,238,.03); }
 .tr-date  { font-size: .68rem; color: var(--text-3); text-align: right; margin-top: 2px; white-space: nowrap; }
 .tr-resi  { font-size: .68rem; font-weight: 700; color: var(--text-2); background: var(--input-bg); padding: 3px 9px; border-radius: 6px; margin-top: 6px; display: inline-block; }
 
-.tr-divider { border-top: 1px dashed var(--border); margin-top: 14px; padding-top: 14px; }
+.tr-divider { margin-top: 14px; padding-top: 14px; box-shadow: inset 0 1px 0 rgba(0,0,0,.08); }
+[data-theme="dark"] .tr-divider { box-shadow: inset 0 1px 0 rgba(255,255,255,.08); }
 .tr-stepper { display: flex; align-items: flex-start; margin-top: 16px; }
 .tr-step { display: flex; flex-direction: column; align-items: center; flex: 1; position: relative; }
 .tr-step-circle {
