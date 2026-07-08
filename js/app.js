@@ -1,11 +1,21 @@
+const SVG_OPEN = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">';
+
+const ICON_DASHBOARD   = SVG_OPEN + '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>';
+const ICON_REPORT      = SVG_OPEN + '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>';
+const ICON_ANALISIS    = SVG_OPEN + '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>';
+const ICON_PRODUCT     = SVG_OPEN + '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>';
+const ICON_TRANSACTION = SVG_OPEN + '<rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>';
+const ICON_TRACKING    = SVG_OPEN + '<rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>';
+const ICON_REKAP       = SVG_OPEN + '<rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="15" y2="16"/></svg>';
+
 const PAGES = [
-  { id: 'dashboard',   label: 'Dashboard',   icon: '⊞',  file: 'dashboard.html'   },
-  { id: 'report',      label: 'Report',      icon: '📊', file: 'report.html'      },
-  { id: 'analisis',    label: 'Analisis',    icon: '📈', file: 'analisis.html'    },
-  { id: 'product',     label: 'Product',     icon: '📦', file: 'product.html'     },
-  { id: 'transaction', label: 'Transaction', icon: '💳', file: 'transaction.html' },
-  { id: 'tracking',    label: 'Tracking Resi', icon: '🚚', file: 'tracking.html'  },
-  { id: 'rekap',       label: 'Rekap SKU',   icon: '📋', file: 'rekap.html'       },
+  { id: 'dashboard',   label: 'Dashboard',   icon: ICON_DASHBOARD,   file: 'dashboard.html'   },
+  { id: 'report',      label: 'Report',      icon: ICON_REPORT,      file: 'report.html'      },
+  { id: 'analisis',    label: 'Analisis',    icon: ICON_ANALISIS,    file: 'analisis.html'    },
+  { id: 'product',     label: 'Product',     icon: ICON_PRODUCT,     file: 'product.html'     },
+  { id: 'transaction', label: 'Transaction', icon: ICON_TRANSACTION, file: 'transaction.html' },
+  { id: 'tracking',    label: 'Tracking Resi', icon: ICON_TRACKING,  file: 'tracking.html'  },
+  { id: 'rekap',       label: 'Rekap SKU',   icon: ICON_REKAP,       file: 'rekap.html'       },
 ];
 
 const ADV_COLORS = ['#4361EE','#7B2FBE','#06C270','#FFB703','#EF233C'];
