@@ -380,6 +380,60 @@ tr:hover td { background: rgba(67,97,238,.03); }
 .empty { text-align: center; padding: 40px; color: var(--text-3); }
 .empty .icon { font-size: 2.5rem; margin-bottom: 10px; }
 
+/* ── Tracking Resi ────────────────────────────────────────────────────────── */
+.stat-card.clickable { cursor: pointer; }
+.stat-card.active { box-shadow: 0 0 0 2px var(--primary) inset; }
+
+.tr-tabs { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+.tr-tab {
+  padding: 8px 14px; border-radius: 10px; font-size: .78rem; font-weight: 700;
+  background: var(--card); color: var(--text-2); border: 1.5px solid var(--border); cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px; transition: all .15s; white-space: nowrap;
+}
+.tr-tab:hover { border-color: var(--primary); color: var(--primary); }
+.tr-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+.tr-toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+.tr-search-wrap { flex: 1; min-width: 220px; margin-left: auto; }
+.tr-count { font-size: .75rem; font-weight: 700; color: var(--text-3); white-space: nowrap; }
+
+#trList { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 14px; }
+.tr-card {
+  background: var(--card); border-radius: var(--radius); padding: 18px 20px;
+  box-shadow: var(--shadow); cursor: pointer; transition: box-shadow .15s, transform .15s;
+}
+.tr-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,.1); }
+.tr-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.tr-card-left { display: flex; gap: 12px; align-items: flex-start; min-width: 0; }
+.tr-name { font-size: .85rem; font-weight: 700; color: var(--text-1); }
+.tr-sub  { font-size: .72rem; color: var(--text-3); margin-top: 1px; }
+.tr-meta { display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+.tr-produk { font-size: .75rem; color: var(--text-2); margin-top: 6px; }
+.tr-price { font-size: .9rem; font-weight: 800; color: var(--text-1); text-align: right; white-space: nowrap; }
+.tr-date  { font-size: .68rem; color: var(--text-3); text-align: right; margin-top: 2px; white-space: nowrap; }
+.tr-resi  { font-size: .68rem; font-weight: 700; color: var(--text-2); background: var(--input-bg); padding: 3px 9px; border-radius: 6px; margin-top: 6px; display: inline-block; }
+
+.tr-stepper { display: flex; align-items: flex-start; margin-top: 16px; }
+.tr-step { display: flex; flex-direction: column; align-items: center; flex: 1; position: relative; }
+.tr-step-circle {
+  width: 20px; height: 20px; border-radius: 50%; background: var(--border); color: var(--text-3);
+  display: flex; align-items: center; justify-content: center; font-size: .65rem; font-weight: 800;
+  z-index: 1;
+}
+.tr-step-label { font-size: .62rem; color: var(--text-3); margin-top: 6px; font-weight: 600; white-space: nowrap; }
+.tr-step-line { position: absolute; top: 10px; left: 50%; width: 100%; height: 2px; background: var(--border); z-index: 0; }
+.tr-step:last-child .tr-step-line { display: none; }
+.tr-step-done .tr-step-circle { background: var(--success); color: white; }
+.tr-step-done .tr-step-label { color: var(--success); }
+.tr-step-done .tr-step-line { background: var(--success); }
+.tr-step-active .tr-step-circle { background: var(--primary); color: white; }
+.tr-step-active .tr-step-label { color: var(--primary); font-weight: 800; }
+.tr-step-problem .tr-step-circle { background: var(--danger); color: white; }
+.tr-step-problem .tr-step-label { color: var(--danger); font-weight: 800; }
+
+.tr-history-item { display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); align-items: flex-start; }
+.tr-history-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
+
 /* ── Upload Modal ─────────────────────────────────────────────────────────── */
 .modal-overlay {
   position: fixed; inset: 0; z-index: 1000;
