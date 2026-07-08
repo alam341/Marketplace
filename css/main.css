@@ -448,6 +448,59 @@ tr:hover td { background: rgba(67,97,238,.03); }
 .tr-history-item { display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); align-items: flex-start; }
 .tr-history-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
 
+/* ── Date Range Picker (dropdown + kalender, dipakai Tracking Resi) ─────────── */
+.drp-wrap { position: relative; display: inline-block; }
+.drp-trigger {
+  display: flex; align-items: center; gap: 7px; padding: 7px 14px; border-radius: 10px;
+  border: 1.5px solid var(--border); background: var(--card); color: var(--text-2);
+  font-size: .8rem; font-weight: 600; cursor: pointer; transition: all .15s; white-space: nowrap;
+}
+.drp-trigger:hover { border-color: var(--primary); color: var(--primary); }
+.drp-dropdown {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 200;
+  background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.16); display: none; overflow: hidden; min-width: 480px;
+}
+.drp-dropdown.open { display: flex; }
+.drp-presets { width: 145px; border-right: 1px solid var(--border); padding: 10px 0; flex-shrink: 0; }
+.drp-preset {
+  display: block; width: 100%; text-align: left; padding: 8px 16px; font-size: .78rem;
+  color: var(--text-2); border: none; background: none; cursor: pointer; transition: all .12s;
+}
+.drp-preset:hover { background: rgba(67,97,238,.08); color: var(--primary); }
+.drp-preset.active { color: var(--primary); font-weight: 700; background: rgba(67,97,238,.08); }
+.drp-cal { padding: 16px; flex: 1; }
+.drp-cal-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.drp-cal-title { font-size: .85rem; font-weight: 700; color: var(--text-1); }
+.drp-nav {
+  width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--border); background: none;
+  color: var(--text-2); cursor: pointer; display: flex; align-items: center; justify-content: center;
+  font-size: .85rem; transition: all .12s;
+}
+.drp-nav:hover { border-color: var(--primary); color: var(--primary); }
+.drp-days-hdr { display: grid; grid-template-columns: repeat(7,1fr); gap: 2px; margin-bottom: 6px; }
+.drp-days-hdr span { text-align: center; font-size: .68rem; font-weight: 700; color: var(--text-3); padding: 4px 0; }
+.drp-days { display: grid; grid-template-columns: repeat(7,1fr); gap: 2px; }
+.drp-day {
+  height: 30px; border-radius: 7px; border: none; background: none; color: var(--text-2);
+  font-size: .75rem; cursor: pointer; transition: all .12s; display: flex; align-items: center; justify-content: center;
+}
+.drp-day:hover:not(.other-month) { background: rgba(67,97,238,.08); color: var(--primary); }
+.drp-day.other-month { color: var(--text-3); opacity: .4; }
+.drp-day.today { font-weight: 800; color: var(--primary); }
+.drp-day.selected { background: var(--primary) !important; color: #fff !important; font-weight: 700; }
+.drp-day.in-range { background: rgba(67,97,238,.1); border-radius: 0; color: var(--text-1); }
+.drp-day.range-start { border-radius: 7px 0 0 7px; background: var(--primary); color: #fff; font-weight: 700; }
+.drp-day.range-end   { border-radius: 0 7px 7px 0; background: var(--primary); color: #fff; font-weight: 700; }
+.drp-day.range-start.range-end { border-radius: 7px; }
+.drp-footer { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-top: 1px solid var(--border); }
+.drp-selected-txt { font-size: .7rem; color: var(--text-3); }
+.drp-selected-txt span { color: var(--text-1); font-weight: 600; }
+.drp-apply  { padding: 6px 16px; border-radius: 7px; border: none; background: var(--primary); color: #fff; font-size: .75rem; font-weight: 700; cursor: pointer; transition: opacity .15s; }
+.drp-apply:hover { opacity: .85; }
+.drp-cancel { padding: 6px 12px; border-radius: 7px; border: 1px solid var(--border); background: none; color: var(--text-2); font-size: .75rem; cursor: pointer; }
+.drp-cancel:hover { border-color: var(--danger); color: var(--danger); }
+
 /* ── Upload Modal ─────────────────────────────────────────────────────────── */
 .modal-overlay {
   position: fixed; inset: 0; z-index: 1000;
