@@ -92,7 +92,8 @@ body {
 }
 .nav-item:hover { background: rgba(67,97,238,.08); color: var(--primary); }
 .nav-item.active { background: var(--primary); color: #fff; font-weight: 600; }
-.nav-icon { font-size: 1.1rem; width: 22px; text-align: center; flex-shrink: 0; }
+.nav-icon { width: 22px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.nav-icon svg { width: 18px; height: 18px; }
 
 .sidebar-bottom { padding: 12px; border-top: 1px solid var(--border); flex-shrink: 0; }
 .user-card {
