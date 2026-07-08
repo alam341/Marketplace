@@ -46,10 +46,12 @@ function mapSpxStage(apiData, destCity) {
 
   let stage = 'DIKIRIM';
   let problem = false;
+  let retur = false; // dikonfirmasi 2026-07-08: milestone_code 10 = "Delivery Unsuccessful" (F671-F999, retur ke penjual)
   const higher = s => { if (TR_STAGE_ORDER.indexOf(s) > TR_STAGE_ORDER.indexOf(stage)) stage = s; };
 
   records.forEach(r => {
     const text = [r.milestone_name, r.tracking_name, r.description].filter(Boolean).join(' ').toLowerCase();
+    if (r.milestone_code === 10) { retur = true; return; }
     if (problemWords.some(w => text.includes(w))) problem = true;
     if (deliveredWords.some(w => text.includes(w))) { higher('SAMPAI'); return; }
     if (otwWords.some(w => text.includes(w))) { higher('OTW'); return; }
@@ -61,7 +63,8 @@ function mapSpxStage(apiData, destCity) {
     }
   });
 
-  if (problem) stage = 'BERMASALAH';
+  if (retur) stage = 'RETUR';
+  else if (problem) stage = 'BERMASALAH';
   return { stage, detail: info };
 }
 
@@ -79,17 +82,24 @@ async function checkSpxResi(resi, destCity) {
 }
 
 // ── POS (via bosampuh.id) ──────────────────────────────────────────────────────
+// Dikonfirmasi dari resi asli 2026-07-08 (gagal antar & retur):
+// - history[].state === "FAILEDTODELIVERED" → percobaan antar gagal, masih bisa dicoba
+//   ulang → BERMASALAH.
+// - history[].state === "Irregularity" ATAU connote_state akhir "DELIVERED (RETURN
+//   DELIVERY)" (BUKAN "DELIVERED" polos!) → paket beneran balik ke pengirim → RETUR.
 const POS_TRANSIT_STATES = ['inBag', 'INVEHICLE', 'INLOCATION', 'unBag'];
 
 function mapPosStage(apiData, destCity) {
   const history = apiData?.connote_history || [];
-  const problemWords = ['retur', 'return', 'gagal', 'cancel', 'rts', 'ditolak', 'bermasalah'];
-  const stateText = [apiData?.connote_state, ...history.map(h => h.content + ' ' + h.content2)].join(' ').toLowerCase();
-  const problem = problemWords.some(w => stateText.includes(w));
+  const state = apiData?.connote_state || '';
 
-  const state = apiData?.connote_state;
+  const hasRetur = /return/i.test(state) || history.some(h => h.state === 'Irregularity');
+  const hasProblem = history.some(h => h.state === 'FAILEDTODELIVERED');
+
   let stage;
-  if (state === 'DELIVERED') stage = 'SAMPAI';
+  if (hasRetur) stage = 'RETUR';
+  else if (state === 'DELIVERED') stage = 'SAMPAI';
+  else if (hasProblem) stage = 'BERMASALAH';
   else if (state === 'DELIVERYRUNSHEET') stage = 'OTW';
   else if (POS_TRANSIT_STATES.includes(state)) {
     const latestCity = history.length ? history[history.length - 1].city : null;
@@ -97,7 +107,6 @@ function mapPosStage(apiData, destCity) {
   } else {
     stage = 'DIKIRIM';
   }
-  if (problem) stage = 'BERMASALAH';
 
   const records = history.slice().reverse().map(h => ({
     description: h.content2 || h.content,
