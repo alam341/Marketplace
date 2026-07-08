@@ -113,37 +113,44 @@ async function checkSpxResi(resi, destCity) {
 // ── POS (via bosampuh.id, dipakai juga di AdsyCRM) ─────────────────────────────
 // connote_state dari POS udah terstruktur & self-explanatory, gak perlu banyak
 // tebak kata kayak fallback SPX.
-const POS_STAGE_BY_STATE = {
-  PAID: 'DIKIRIM',
-  inBag: 'KOTA_TUJUAN',
-  INVEHICLE: 'KOTA_TUJUAN',
-  INLOCATION: 'KOTA_TUJUAN',
-  unBag: 'KOTA_TUJUAN',
-  DELIVERYRUNSHEET: 'OTW',
-  DELIVERED: 'SAMPAI',
-};
+// "inBag/INVEHICLE/INLOCATION/unBag" bisa kejadian pas masih di kota ASAL juga (mindah
+// antar hub lokal), bukan cuma pas udah nyampe kota tujuan. Histori POS untungnya punya
+// field "city" eksplisit per event, jadi dicocokin ke kota tujuan pembeli dulu sebelum
+// diklaim "Kota Tujuan" — sama kayak SPX.
+const POS_TRANSIT_STATES = ['inBag', 'INVEHICLE', 'INLOCATION', 'unBag'];
 
-function mapPosStage(apiData) {
+function mapPosStage(apiData, destCity) {
   const history = apiData?.connote_history || [];
   const problemWords = ['retur', 'return', 'gagal', 'cancel', 'rts', 'ditolak', 'bermasalah'];
   const stateText = [apiData?.connote_state, ...history.map(h => h.content + ' ' + h.content2)].join(' ').toLowerCase();
   const problem = problemWords.some(w => stateText.includes(w));
 
-  const stage = problem ? 'BERMASALAH' : (POS_STAGE_BY_STATE[apiData?.connote_state] || 'DIKIRIM');
+  const state = apiData?.connote_state;
+  let stage;
+  if (state === 'DELIVERED') stage = 'SAMPAI';
+  else if (state === 'DELIVERYRUNSHEET') stage = 'OTW';
+  else if (POS_TRANSIT_STATES.includes(state)) {
+    const latestCity = history.length ? history[history.length - 1].city : null;
+    stage = trCityMatches(destCity, latestCity) ? 'KOTA_TUJUAN' : 'DIKIRIM';
+  } else {
+    stage = 'DIKIRIM';
+  }
+  if (problem) stage = 'BERMASALAH';
+
   const records = history.slice().reverse().map(h => ({
     description: h.content2 || h.content,
     tracking_name: h.action,
     actual_time: h.created_at ? Math.floor(new Date(h.created_at.replace(' ', 'T')).getTime() / 1000) : null,
-    current_location: { location_name: h.location_name || '' },
+    current_location: { location_name: h.location_name || h.city || '' },
   }));
   return { stage, detail: { records } };
 }
 
-async function checkPosResi(resi) {
+async function checkPosResi(resi, destCity) {
   const r = await fetch(`/api/pos-tracking?resi=${encodeURIComponent(resi)}`);
   const data = await r.json();
   if (data.error || !data.connote_code) throw new Error(data.error || 'Resi tidak ditemukan');
-  return mapPosStage(data);
+  return mapPosStage(data, destCity);
 }
 
 // ── Kurir lain via Mengantar (JNE, J&T, SiCepat, Anteraja, Ninja, IDExpress, Lion) ─
@@ -206,7 +213,7 @@ async function checkMengantarResi(resi, ekspedisi) {
 
 const TR_AUTO_EKSPEDISI = {
   SPX: o => checkSpxResi(o.id, o.kota_tujuan),
-  POS: o => checkPosResi(o.id),
+  POS: o => checkPosResi(o.id, o.kota_tujuan),
   JNE: o => checkMengantarResi(o.id, o.ekspedisi),
   'J&T': o => checkMengantarResi(o.id, o.ekspedisi),
   SICEPAT: o => checkMengantarResi(o.id, o.ekspedisi),
