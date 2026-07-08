@@ -23,6 +23,7 @@ const MP_CONFIG = {
       status:     h => _findCol(h, ['status pesanan']),
       ekspedisi:  h => _findCol(h, ['opsi pengiriman']),
       buyer:      h => _findCol(h, ['username (pembeli)', 'username']),
+      kota_tujuan: h => _findCol(h, ['kota/kabupaten']),
     },
   },
   tiktok: {
@@ -41,6 +42,7 @@ const MP_CONFIG = {
       status:     h => _findCol(h, ['order status']),
       ekspedisi:  h => _findCol(h, ['shipping provider name']),
       buyer:      h => _findCol(h, ['buyer username']),
+      kota_tujuan: h => _findCol(h, ['regency and city']),
     },
   },
   lazada: {
@@ -58,6 +60,7 @@ const MP_CONFIG = {
       status:     h => _findCol(h, ['status']),
       ekspedisi:  h => _findCol(h, ['shippingprovider']),
       buyer:      h => _findCol(h, ['customername']),
+      kota_tujuan: h => _findCol(h, ['shippingcity']),
     },
   },
 };
@@ -225,6 +228,7 @@ function _parseRows(rows, mp, mapping) {
       const order_hour = _parseHour(rawDate);
       const ekspedisi  = _normalizeEkspedisi(get(mapping.ekspedisi));
       const buyer      = String(get(mapping.buyer) || '').trim();
+      const kota_tujuan = String(get(mapping.kota_tujuan) || '').trim();
       return {
         id:         String(get(mapping.id) || ('IMP-' + mp + '-' + i)).trim(),
         date:       _parseDate(rawDate),
@@ -237,6 +241,7 @@ function _parseRows(rows, mp, mapping) {
         order_hour,
         ekspedisi,
         buyer,
+        kota_tujuan,
         marketplace: mp,
       };
     })

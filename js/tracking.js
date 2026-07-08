@@ -51,7 +51,27 @@ function trCardState(stage) {
 const SPX_STAGE_BY_MILESTONE = { 1: 'DIKIRIM', 5: 'KOTA_TUJUAN', 6: 'OTW', 8: 'SAMPAI' };
 const TR_STAGE_ORDER = ['DIKIRIM', 'KOTA_TUJUAN', 'OTW', 'SAMPAI'];
 
-function mapSpxStage(apiData) {
+// Kota tujuan cuma dicap "Kota Tujuan" kalau nama hub SPX (current_location) di-cocokin
+// ke kota tujuan pembeli (kolom "Kota/Kabupaten" dkk dari file marketplace). Nama hub gak
+// selalu persis nama kota (mis. "Yogyakarta DC" vs kota tujuan "Kab. Sleman"), jadi ini
+// best-effort — gagal cocok = tetap "Dikirim" (lebih aman daripada kepagian klaim sampai).
+function trNormalizeCity(s) {
+  return String(s || '')
+    .toUpperCase()
+    .replace(/^(KOTA|KAB\.?|KABUPATEN)\s+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function trCityMatches(destCity, locationName) {
+  if (!destCity || !locationName) return false;
+  const dest = trNormalizeCity(destCity);
+  if (!dest) return false;
+  const loc = String(locationName).toUpperCase();
+  const firstWord = dest.split(' ')[0];
+  return firstWord.length >= 4 && loc.includes(firstWord);
+}
+
+function mapSpxStage(apiData, destCity) {
   const info = apiData?.data?.sls_tracking_info || null;
   const records = info?.records || [];
   if (!records.length) return { stage: 'DIKIRIM', detail: info };
@@ -70,21 +90,24 @@ function mapSpxStage(apiData) {
     if (deliveredWords.some(w => text.includes(w))) { higher('SAMPAI'); return; }
     if (otwWords.some(w => text.includes(w))) { higher('OTW'); return; }
     const ms = SPX_STAGE_BY_MILESTONE[r.milestone_code];
-    // "Pickup From Domestic Seller" (kode F1xx) ikut masuk milestone_code 5 juga di SPX,
-    // padahal itu baru "diambil kurir dari seller" — belum pantas disebut "Kota Tujuan".
-    // Cuma event F4xx ke atas (masuk/diproses di hub) yang layak naik ke Kota Tujuan.
-    if (ms && !(ms === 'KOTA_TUJUAN' && /^F1\d\d/.test(r.tracking_code || ''))) higher(ms);
+    if (ms === 'KOTA_TUJUAN') {
+      // Cuma naik ke Kota Tujuan kalau lokasi event ini (yang udah ke-scan, bukan next_location
+      // yang masih rencana) beneran cocok sama kota tujuan pembeli.
+      if (trCityMatches(destCity, r.current_location?.location_name)) higher('KOTA_TUJUAN');
+    } else if (ms) {
+      higher(ms);
+    }
   });
 
   if (problem) stage = 'BERMASALAH';
   return { stage, detail: info };
 }
 
-async function checkSpxResi(resi) {
+async function checkSpxResi(resi, destCity) {
   const r = await fetch(`/api/spx-tracking?resi=${encodeURIComponent(resi)}`);
   const data = await r.json();
   if (data.retcode !== 0) throw new Error(data.message || 'Resi tidak ditemukan');
-  return mapSpxStage(data);
+  return mapSpxStage(data, destCity);
 }
 
 // ── POS (via bosampuh.id, dipakai juga di AdsyCRM) ─────────────────────────────
@@ -182,7 +205,7 @@ async function checkMengantarResi(resi, ekspedisi) {
 }
 
 const TR_AUTO_EKSPEDISI = {
-  SPX: o => checkSpxResi(o.id),
+  SPX: o => checkSpxResi(o.id, o.kota_tujuan),
   POS: o => checkPosResi(o.id),
   JNE: o => checkMengantarResi(o.id, o.ekspedisi),
   'J&T': o => checkMengantarResi(o.id, o.ekspedisi),

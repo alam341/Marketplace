@@ -90,6 +90,7 @@ async function dbBulkInsertMarketplaceOrders(marketplace, rows, storeName = '', 
     order_hour:      r.order_hour ?? null,
     ekspedisi:       r.ekspedisi || null,
     buyer:           r.buyer || null,
+    kota_tujuan:     r.kota_tujuan || null,
     upload_batch_id: batchId,
     adv_id:          session.user.id,
   }));
@@ -336,7 +337,7 @@ const TRACKABLE_TABLES = [
 async function dbGetTrackableOrders(filters = {}) {
   const results = await Promise.all(TRACKABLE_TABLES.map(async ({ table, marketplace }) => {
     let q = _sb.from(table)
-      .select('id, date, sku, product, qty, total, status, ekspedisi, buyer, status_resi, status_resi_step, status_resi_updated_at, status_resi_detail, adv_id, store_name, profiles(id, name, avatar)')
+      .select('id, date, sku, product, qty, total, status, ekspedisi, buyer, kota_tujuan, status_resi, status_resi_step, status_resi_updated_at, status_resi_detail, adv_id, store_name, profiles(id, name, avatar)')
       .not('id', 'is', null)
       .order('date', { ascending: false });
     if (filters.advId) q = q.eq('adv_id', filters.advId);
