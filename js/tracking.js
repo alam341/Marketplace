@@ -237,7 +237,7 @@ function trCardHtml(o) {
             ${badgeMarketplace(o.marketplace)}
             ${o.ekspedisi ? `<span class="badge badge-gray">${o.ekspedisi}</span>` : ''}
           </div>
-          <div class="tr-produk">${o.product || '-'} × ${o.qty || 1}</div>
+          <div class="tr-produk" title="${(o.product || '-').replace(/"/g, '&quot;')}">${o.product || '-'} × ${o.qty || 1}</div>
         </div>
       </div>
       <div>
