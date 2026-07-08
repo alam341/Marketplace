@@ -3,8 +3,10 @@
 // stat card yang bisa diklik buat filter + stepper 5 tahap + modal detail histori.
 //
 // Sumber cek status pengiriman per ekspedisi:
-// - SPX (Shopee Xpress)  -> api/spx-tracking.js (proxy ke spx.co.id, publik tanpa API key)
-// - Kurir lain (JNE, J&T, Shopee Hemat, dst) -> belum didukung, tombol "Cek Manual"
+// - SPX (Shopee Xpress)                           -> api/spx-tracking.js (proxy ke spx.co.id, publik tanpa API key)
+// - POS Indonesia                                 -> api/pos-tracking.js (proxy ke bosampuh.id, sama kayak AdsyCRM)
+// - JNE/J&T/SiCepat/Anteraja/Ninja/IDExpress/Lion  -> api/mengantar-tracking.js (proxy ke app.mengantar.com)
+// - Kurir lain di luar daftar itu -> belum didukung, tombol "Cek Manual"
 
 const TR_STEP_LABELS = ['Konfirmasi', 'Dikirim', 'Kota Tujuan', 'OTW', 'Sampai'];
 const TR_STAGE_META = {
@@ -65,9 +67,13 @@ function mapSpxStage(apiData) {
   records.forEach(r => {
     const text = [r.milestone_name, r.tracking_name, r.description].filter(Boolean).join(' ').toLowerCase();
     if (problemWords.some(w => text.includes(w))) problem = true;
-    if (deliveredWords.some(w => text.includes(w))) higher('SAMPAI');
-    else if (otwWords.some(w => text.includes(w))) higher('OTW');
-    else if (SPX_STAGE_BY_MILESTONE[r.milestone_code]) higher(SPX_STAGE_BY_MILESTONE[r.milestone_code]);
+    if (deliveredWords.some(w => text.includes(w))) { higher('SAMPAI'); return; }
+    if (otwWords.some(w => text.includes(w))) { higher('OTW'); return; }
+    const ms = SPX_STAGE_BY_MILESTONE[r.milestone_code];
+    // "Pickup From Domestic Seller" (kode F1xx) ikut masuk milestone_code 5 juga di SPX,
+    // padahal itu baru "diambil kurir dari seller" — belum pantas disebut "Kota Tujuan".
+    // Cuma event F4xx ke atas (masuk/diproses di hub) yang layak naik ke Kota Tujuan.
+    if (ms && !(ms === 'KOTA_TUJUAN' && /^F1\d\d/.test(r.tracking_code || ''))) higher(ms);
   });
 
   if (problem) stage = 'BERMASALAH';
@@ -80,6 +86,114 @@ async function checkSpxResi(resi) {
   if (data.retcode !== 0) throw new Error(data.message || 'Resi tidak ditemukan');
   return mapSpxStage(data);
 }
+
+// ── POS (via bosampuh.id, dipakai juga di AdsyCRM) ─────────────────────────────
+// connote_state dari POS udah terstruktur & self-explanatory, gak perlu banyak
+// tebak kata kayak fallback SPX.
+const POS_STAGE_BY_STATE = {
+  PAID: 'DIKIRIM',
+  inBag: 'KOTA_TUJUAN',
+  INVEHICLE: 'KOTA_TUJUAN',
+  INLOCATION: 'KOTA_TUJUAN',
+  unBag: 'KOTA_TUJUAN',
+  DELIVERYRUNSHEET: 'OTW',
+  DELIVERED: 'SAMPAI',
+};
+
+function mapPosStage(apiData) {
+  const history = apiData?.connote_history || [];
+  const problemWords = ['retur', 'return', 'gagal', 'cancel', 'rts', 'ditolak', 'bermasalah'];
+  const stateText = [apiData?.connote_state, ...history.map(h => h.content + ' ' + h.content2)].join(' ').toLowerCase();
+  const problem = problemWords.some(w => stateText.includes(w));
+
+  const stage = problem ? 'BERMASALAH' : (POS_STAGE_BY_STATE[apiData?.connote_state] || 'DIKIRIM');
+  const records = history.slice().reverse().map(h => ({
+    description: h.content2 || h.content,
+    tracking_name: h.action,
+    actual_time: h.created_at ? Math.floor(new Date(h.created_at.replace(' ', 'T')).getTime() / 1000) : null,
+    current_location: { location_name: h.location_name || '' },
+  }));
+  return { stage, detail: { records } };
+}
+
+async function checkPosResi(resi) {
+  const r = await fetch(`/api/pos-tracking?resi=${encodeURIComponent(resi)}`);
+  const data = await r.json();
+  if (data.error || !data.connote_code) throw new Error(data.error || 'Resi tidak ditemukan');
+  return mapPosStage(data);
+}
+
+// ── Kurir lain via Mengantar (JNE, J&T, SiCepat, Anteraja, Ninja, IDExpress, Lion) ─
+// Heuristik + kode kurir diporting persis dari js/shared.js punya AdsyCRM.
+const MENGANTAR_COURIER_MAP = {
+  JNE: 'JNE', 'J&T': 'JT', SICEPAT: 'SiCepat', ANTERAJA: 'anteraja',
+  NINJA: 'Ninja', IDEXPRESS: 'iDexpress', LION: 'lion',
+};
+const TR_RETUR_PATTERN   = /retur|dikembalikan|\brts\b|\brto\b|return to sender/i;
+const TR_PROBLEM_PATTERN = /gagal|kendala|bermasalah|problematic|tidak ditemukan|alamat tidak (lengkap|dikenal)|tidak ada orang|tidak ditempat|tidak dihuni|menunggu konfirmasi|disimpan di gudang|ditolak|pindah alamat|box undel/i;
+const TR_OTW_PATTERN     = /sedang diantar|dalam pengantaran|out for delivery|kurir menuju|\botw\b|akan dikirim ke alamat penerima|with delivery courier|delivery courier|diantar ke alamat|on delivery|1st attempt|2nd attempt|percobaan/i;
+const TR_KOTA_TUJUAN_PATTERN = /kota tujuan|gudang tujuan|tiba di kota|received at destination|received at warehouse|process and forward|inbound|sti-dest/i;
+
+function mengantarComputeStep(entries) {
+  let step = 2; // resi sudah discan sistem kurir minimal = Dikirim
+  (entries || []).forEach(e => {
+    const d = (e.desc || '').toLowerCase();
+    if (TR_OTW_PATTERN.test(d)) step = Math.max(step, 4);
+    else if (TR_KOTA_TUJUAN_PATTERN.test(d)) step = Math.max(step, 3);
+  });
+  return step;
+}
+
+function mapMengantarStage(json) {
+  if (!json || !json.success || !json.data) throw new Error(json?.message || 'Resi tidak ditemukan');
+  const d = json.data;
+  const history = Array.isArray(d.history) ? d.history : [];
+  // Gabung desc + code — Lion taruh sinyal penting ("STI-DEST"/"POD"/"DEL") di code, bukan desc
+  const entries = history.map(h => ({ desc: [h.desc, h.code].filter(Boolean).join(' '), group: h.type?.group || null, tag: h.type?.tag || null }));
+  const cat = (d.statusCategory || d.status || '').toUpperCase();
+  const latestDesc = (entries.length ? entries[entries.length - 1].desc : '').toLowerCase();
+  const reachedStep = mengantarComputeStep(entries);
+
+  let stage;
+  if (cat.includes('RETUR') || cat.includes('RETURN') || entries.some(e => TR_RETUR_PATTERN.test(e.desc || ''))) {
+    stage = 'RETUR';
+  } else if (cat === 'DELIVERED' || /diterima oleh|delivered|\bpod\b/.test(latestDesc)) {
+    stage = 'SAMPAI';
+  } else {
+    const hasStructuredProblem = entries.some(e => e.group === 'UNDELIVERED' || e.tag === 'actionRequired');
+    if (hasStructuredProblem || entries.some(e => TR_PROBLEM_PATTERN.test(e.desc || ''))) stage = 'BERMASALAH';
+    else if (reachedStep >= 4) stage = 'OTW';
+    else if (reachedStep >= 3) stage = 'KOTA_TUJUAN';
+    else stage = 'DIKIRIM';
+  }
+
+  // Tanggal/lokasi per-event Mengantar belum dikonfirmasi field-nya — tampilkan desc-nya saja
+  // dulu di histori, biar gak salah tebak nama field.
+  const records = history.slice().reverse().map(h => ({ description: [h.desc, h.code].filter(Boolean).join(' ') || '-' }));
+  return { stage, detail: { records } };
+}
+
+async function checkMengantarResi(resi, ekspedisi) {
+  const courier = MENGANTAR_COURIER_MAP[ekspedisi];
+  if (!courier) throw new Error('Ekspedisi belum didukung');
+  const r = await fetch(`/api/mengantar-tracking?tracking_number=${encodeURIComponent(resi)}&courier=${encodeURIComponent(courier)}`);
+  const data = await r.json();
+  return mapMengantarStage(data);
+}
+
+const TR_AUTO_EKSPEDISI = {
+  SPX: o => checkSpxResi(o.id),
+  POS: o => checkPosResi(o.id),
+  JNE: o => checkMengantarResi(o.id, o.ekspedisi),
+  'J&T': o => checkMengantarResi(o.id, o.ekspedisi),
+  SICEPAT: o => checkMengantarResi(o.id, o.ekspedisi),
+  ANTERAJA: o => checkMengantarResi(o.id, o.ekspedisi),
+  NINJA: o => checkMengantarResi(o.id, o.ekspedisi),
+  IDEXPRESS: o => checkMengantarResi(o.id, o.ekspedisi),
+  LION: o => checkMengantarResi(o.id, o.ekspedisi),
+};
+function trIsAutoTrackable(ekspedisi) { return !!TR_AUTO_EKSPEDISI[ekspedisi]; }
+async function checkResiAuto(o) { return TR_AUTO_EKSPEDISI[o.ekspedisi](o); }
 
 // ── Page state ────────────────────────────────────────────────────────────────
 let _trkOrders = [];
@@ -140,7 +254,7 @@ function renderTrackingPage() {
     <div class="card">
       <div class="card-header">
         <div class="card-header-left"><h3>Tracking Resi</h3><div class="card-sub">Monitor status pengiriman semua order</div></div>
-        <button class="btn btn-primary btn-sm" id="trRefreshBtn" onclick="trRefreshAll()">🔄 Refresh Semua (SPX)</button>
+        <button class="btn btn-primary btn-sm" id="trRefreshBtn" onclick="trRefreshAll()">🔄 Refresh Semua</button>
       </div>
 
       <div class="tr-toolbar">
@@ -248,7 +362,7 @@ function trCardHtml(o) {
         ${hasResi ? `<div class="tr-resi">${o.id}</div>` : ''}
       </div>
     </div>
-    ${trStepperHtml(stage)}
+    <div class="tr-divider">${trStepperHtml(stage)}</div>
   </div>`;
 }
 
@@ -276,12 +390,20 @@ function trOpenDetail(key) {
       </div>`).join('')}</div>`;
   }
 
+  const autoTrackable = trIsAutoTrackable(o.ekspedisi);
+  const unsupportedNote = (hasResi && o.ekspedisi && !autoTrackable)
+    ? `<div style="margin-top:12px;padding:10px 12px;background:var(--input-bg);border-radius:8px;font-size:.75rem;color:var(--text-3)">
+         ℹ️ Ekspedisi <strong>${o.ekspedisi}</strong> belum bisa dicek otomatis di sini — cek manual di situs resminya pakai resi <strong>${o.id}</strong>.
+       </div>`
+    : '';
+
   document.getElementById('trkModalBody').innerHTML = `
     <div style="margin-top:10px"><span class="badge ${meta.badge}">${meta.label}</span></div>
     ${trStepperHtml(stage)}
+    ${unsupportedNote}
     ${historyHtml}
   `;
-  document.getElementById('trkModalCheckBtn').style.display = (hasResi && o.ekspedisi === 'SPX') ? '' : 'none';
+  document.getElementById('trkModalCheckBtn').style.display = (hasResi && autoTrackable) ? '' : 'none';
   document.getElementById('trkModalOverlay').classList.add('open');
 }
 
@@ -295,9 +417,9 @@ async function trManualCheckFromModal() {
 }
 
 async function trCheckOne(o) {
-  if (o.ekspedisi !== 'SPX') { showToast('Ekspedisi ini belum didukung cek otomatis', 'info'); return; }
+  if (!trIsAutoTrackable(o.ekspedisi)) { showToast('Ekspedisi ini belum didukung cek otomatis', 'info'); return; }
   try {
-    const { stage, detail } = await checkSpxResi(o.id);
+    const { stage, detail } = await checkResiAuto(o);
     const patch = {
       status_resi: stage,
       status_resi_step: TR_STAGE_META[stage].step,
@@ -316,8 +438,8 @@ async function trCheckOne(o) {
 
 async function trRefreshAll() {
   const btn = document.getElementById('trRefreshBtn');
-  const targets = _trkOrders.filter(o => o.ekspedisi === 'SPX' && !['SAMPAI', 'RETUR'].includes(o.status_resi));
-  if (!targets.length) { showToast('Tidak ada resi SPX untuk dicek', 'info'); return; }
+  const targets = _trkOrders.filter(o => trIsAutoTrackable(o.ekspedisi) && !['SAMPAI', 'RETUR'].includes(o.status_resi));
+  if (!targets.length) { showToast('Tidak ada resi yang bisa dicek otomatis', 'info'); return; }
   btn.disabled = true;
   btn.textContent = `Mengecek 0/${targets.length}...`;
   let done = 0;
@@ -326,7 +448,7 @@ async function trRefreshAll() {
     const batch = targets.slice(i, i + BATCH);
     await Promise.all(batch.map(async o => {
       try {
-        const { stage, detail } = await checkSpxResi(o.id);
+        const { stage, detail } = await checkResiAuto(o);
         const patch = {
           status_resi: stage,
           status_resi_step: TR_STAGE_META[stage].step,
@@ -341,7 +463,7 @@ async function trRefreshAll() {
     }));
   }
   btn.disabled = false;
-  btn.textContent = '🔄 Refresh Semua (SPX)';
+  btn.textContent = '🔄 Refresh Semua';
   trUpdateStats();
   trApplyFilter();
   showToast('✅ Selesai cek semua resi SPX', 'success');
