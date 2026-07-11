@@ -7,6 +7,7 @@ const ICON_PRODUCT     = SVG_OPEN + '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-
 const ICON_TRANSACTION = SVG_OPEN + '<rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>';
 const ICON_TRACKING    = SVG_OPEN + '<rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>';
 const ICON_REKAP       = SVG_OPEN + '<rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="15" y2="16"/></svg>';
+const ICON_SETTINGS_TOKO = SVG_OPEN + '<path d="M3 9l1.5-5h15L21 9"/><path d="M3 9v10a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V9"/><path d="M3 9h18"/><path d="M9 13a3 3 0 0 0 6 0"/></svg>';
 
 const PAGES = [
   { id: 'dashboard',   label: 'Dashboard',   icon: ICON_DASHBOARD,   file: 'dashboard.html'   },
@@ -16,6 +17,7 @@ const PAGES = [
   { id: 'transaction', label: 'Transaction', icon: ICON_TRANSACTION, file: 'transaction.html' },
   { id: 'tracking',    label: 'Tracking Resi', icon: ICON_TRACKING,  file: 'tracking.html'  },
   { id: 'rekap',       label: 'Rekap SKU',   icon: ICON_REKAP,       file: 'rekap.html'       },
+  { id: 'settings-toko', label: 'Kelola Toko', icon: ICON_SETTINGS_TOKO, file: 'settings-toko.html' },
 ];
 
 const ADV_COLORS = ['#4361EE','#7B2FBE','#06C270','#FFB703','#EF233C'];

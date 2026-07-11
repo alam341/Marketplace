@@ -4,6 +4,7 @@ let _uploadedWb = null;
 let _detectedMarketplace = null;
 let _parsedRows = [];
 let _storeName = '';
+let _storeOptions = [];
 
 // ── Marketplace Config ─────────────────────────────────────────────────────────
 const MP_CONFIG = {
@@ -255,6 +256,7 @@ function openUploadModal() {
   _detectedMarketplace = null;
   _parsedRows = [];
   _storeName = '';
+  _storeOptions = [];
   _renderUploadModal();
   document.getElementById('uploadModalOverlay').classList.add('open');
 }
@@ -267,6 +269,7 @@ function _renderUploadModal() {
   let content = '';
 
   if (_uploadStep === 1) {
+    const isNewStore = _storeName === '__new__';
     const mpInfo = _detectedMarketplace
       ? `<div style="background:rgba(6,194,112,.1);border-radius:8px;padding:10px 14px;margin-top:12px;display:flex;gap:10px;align-items:center">
            <span style="font-size:1.2rem">✅</span>
@@ -274,11 +277,17 @@ function _renderUploadModal() {
            <div style="font-size:.75rem;color:var(--text-3)">${_parsedRows.length} baris data siap diimport</div></div>
          </div>
          <div style="margin-top:12px">
-           <label style="font-size:.82rem;font-weight:700;color:var(--text-2);display:block;margin-bottom:6px">Nama Toko *</label>
-           <input type="text" id="storeNameInput" placeholder="Contoh: Adsy Official, Toko Herbal 2..."
-             style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:.875rem;box-sizing:border-box"
-             value="${_storeName || ''}">
-           <div style="font-size:.72rem;color:var(--text-3);margin-top:4px">Untuk membedakan performa antar toko</div>
+           <label style="font-size:.82rem;font-weight:700;color:var(--text-2);display:block;margin-bottom:6px">Toko *</label>
+           <select id="storeNameSelect" class="ctrl-select" style="width:100%" onchange="onStoreSelectChange(this.value)">
+             <option value="">-- Pilih Toko --</option>
+             ${_storeOptions.map(s => `<option value="${s.name}" ${_storeName === s.name ? 'selected' : ''}>${s.name}</option>`).join('')}
+             <option value="__new__" ${isNewStore ? 'selected' : ''}>+ Tambah toko baru...</option>
+           </select>
+           <div id="newStoreWrap" style="display:${isNewStore ? 'block' : 'none'};margin-top:8px">
+             <input type="text" id="newStoreNameInput" placeholder="Nama toko baru, mis. Adsy Official"
+               style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:.875rem;box-sizing:border-box">
+           </div>
+           <div style="font-size:.72rem;color:var(--text-3);margin-top:4px">Belum ada di daftar? Kelola lewat menu "Kelola Toko" atau tambah langsung di sini.</div>
          </div>`
       : '';
 
@@ -358,7 +367,7 @@ function _handleUploadFile(file) {
     return;
   }
   const reader = new FileReader();
-  reader.onload = e => {
+  reader.onload = async e => {
     try {
       _uploadedWb = XLSX.read(e.target.result, { type: 'binary' });
       const wsName = _uploadedWb.SheetNames[0];
@@ -393,6 +402,8 @@ function _handleUploadFile(file) {
 
       _detectedMarketplace = mp;
       _parsedRows = _parseRows(rows, mp, mapping);
+      _storeName = '';
+      _storeOptions = await dbGetStores(mp).catch(() => []);
       _renderUploadModal();
     } catch(err) {
       document.getElementById('uploadFileInfo').innerHTML =
@@ -403,11 +414,36 @@ function _handleUploadFile(file) {
 }
 
 function _goToStep1()  { _uploadStep = 1; _renderUploadModal(); }
-function _goToPreview() {
-  _storeName = document.getElementById('storeNameInput')?.value.trim() || '';
+
+function onStoreSelectChange(val) {
+  _storeName = val;
+  const wrap = document.getElementById('newStoreWrap');
+  if (val === '__new__') {
+    wrap.style.display = 'block';
+    document.getElementById('newStoreNameInput').focus();
+  } else {
+    wrap.style.display = 'none';
+  }
+}
+
+async function _goToPreview() {
+  if (_storeName === '__new__') {
+    const newName = document.getElementById('newStoreNameInput')?.value.trim() || '';
+    if (!newName) {
+      document.getElementById('newStoreNameInput').style.borderColor = 'var(--danger)';
+      document.getElementById('newStoreNameInput').focus();
+      return;
+    }
+    try {
+      await dbAddStore(_detectedMarketplace, newName);
+    } catch (e) {
+      // Toko udah ada duluan (race dgn upload lain) — gapapa, tetep pakai nama itu.
+    }
+    _storeName = newName;
+  }
   if (!_storeName) {
-    document.getElementById('storeNameInput').style.borderColor = 'var(--danger)';
-    document.getElementById('storeNameInput').focus();
+    document.getElementById('storeNameSelect').style.borderColor = 'var(--danger)';
+    document.getElementById('storeNameSelect').focus();
     return;
   }
   _uploadStep = 2; _renderUploadModal();

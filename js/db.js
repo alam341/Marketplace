@@ -40,6 +40,29 @@ async function dbGetAllProfiles() {
   return data;
 }
 
+// ── Toko (per marketplace) — dipakai dropdown upload & filter Analisis/Product ─
+async function dbGetStores(marketplace) {
+  let q = _sb.from('stores').select('*').order('name');
+  if (marketplace) q = q.eq('marketplace', marketplace);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data || [];
+}
+
+async function dbAddStore(marketplace, name) {
+  const { data, error } = await _sb.from('stores').insert({ marketplace, name }).select().single();
+  if (error) {
+    if (error.code === '23505') throw new Error('Toko dengan nama itu sudah terdaftar di marketplace ini.');
+    throw error;
+  }
+  return data;
+}
+
+async function dbDeleteStore(id) {
+  const { error } = await _sb.from('stores').delete().eq('id', id);
+  if (error) throw error;
+}
+
 // ── Transactions ──────────────────────────────────────────────────────────────
 // RLS otomatis filter: ADV hanya lihat data sendiri, SPV lihat semua
 async function dbGetTransactions(filters = {}) {
