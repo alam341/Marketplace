@@ -30,7 +30,7 @@
 <script>
 let _user, _profiles = [], _skuData = [], _skuChart;
 let _search = '', _mpFilter = '', _storeFilter = '';
-let _validOrders = [], _storeOptions = [];
+let _validOrders = [], _pStoreOptions = [];
 const CANCEL_WORDS = ['batal','cancel','cancelled','canceled'];
 
 (async () => {
@@ -49,10 +49,10 @@ async function setMpFilter(mp) {
     b.className = 'btn btn-sm ' + (b.dataset.mp === mp ? 'btn-primary' : 'btn-outline') + ' mp-filter-btn';
   });
   _storeFilter = '';
-  _storeOptions = await dbGetStores(mp || undefined).catch(() => []);
+  _pStoreOptions = await dbGetStores(mp || undefined).catch(() => []);
   const sel = document.getElementById('storeFilter');
   if (sel) sel.innerHTML = `<option value="">Semua Toko</option>` +
-    _storeOptions.map(s => `<option value="${s.name}">${s.name}</option>`).join('');
+    _pStoreOptions.map(s => `<option value="${s.name}">${s.name}</option>`).join('');
   _buildSkuData();
   renderAll();
 }
@@ -89,7 +89,7 @@ async function refreshPage() {
       dbGetStores(_mpFilter || undefined).catch(() => []),
     ]);
     _validOrders = orders.filter(t => !CANCEL_WORDS.some(k => String(t.status||'').toLowerCase().includes(k)));
-    _storeOptions = storeList;
+    _pStoreOptions = storeList;
 
     _buildSkuData();
 
@@ -108,7 +108,7 @@ async function refreshPage() {
           <button class="btn btn-outline btn-sm mp-filter-btn" data-mp="lazada" onclick="setMpFilter('lazada')" style="color:#0F146D;border-color:#0F146D">Lazada</button>
           <select class="ctrl-select" id="storeFilter" onchange="setStoreFilter(this.value)" style="margin-left:auto">
             <option value="">Semua Toko</option>
-            ${_storeOptions.map(s => `<option value="${s.name}" ${s.name===_storeFilter?'selected':''}>${s.name}</option>`).join('')}
+            ${_pStoreOptions.map(s => `<option value="${s.name}" ${s.name===_storeFilter?'selected':''}>${s.name}</option>`).join('')}
           </select>
         </div>
       </div>

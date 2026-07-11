@@ -119,7 +119,7 @@
 // ── State ─────────────────────────────────────────────────────────────────────
 let _user, _profiles = [];
 let _fMp = '', _fAdv = '', _fStore = '';
-let _storeOptions = [];
+let _aStoreOptions = [];
 let _sortBy = 'qty'; // 'qty' | 'omset'
 let _charts = new Map();
 let _overallChart = null;
@@ -168,7 +168,7 @@ async function refreshPage() {
       dbGetAllMarketplaceOrders(filters),
       dbGetStores(_fMp || undefined).catch(() => []),
     ]);
-    _storeOptions = storeList.map(s => s.name);
+    _aStoreOptions = storeList.map(s => s.name);
     const rows = _fStore ? allRows.filter(r => r.store_name === _fStore) : allRows;
 
     if (diffDays === 1) {
@@ -506,7 +506,7 @@ function _htmlFilters(isSPV) {
         </select>
         <select class="ctrl-select" id="storeFilter" onchange="_fStore=this.value;refreshPage()">
           <option value="">Semua Toko</option>
-          ${_storeOptions.map(s => `<option value="${s}" ${s===_fStore?'selected':''}>${s}</option>`).join('')}
+          ${_aStoreOptions.map(s => `<option value="${s}" ${s===_fStore?'selected':''}>${s}</option>`).join('')}
         </select>
         ${isSPV ? `
           <select class="ctrl-select" id="advFilter" onchange="_fAdv=this.value;refreshPage()">
