@@ -164,8 +164,11 @@ async function refreshPage() {
     if (_user.role !== 'spv')  filters.advId = _user.id;
     else if (_fAdv) filters.advId = _fAdv;
 
-    const allRows = await dbGetAllMarketplaceOrders(filters);
-    _storeOptions = [...new Set(allRows.map(r => r.store_name).filter(Boolean))].sort();
+    const [allRows, storeList] = await Promise.all([
+      dbGetAllMarketplaceOrders(filters),
+      dbGetStores(_fMp || undefined).catch(() => []),
+    ]);
+    _storeOptions = storeList.map(s => s.name);
     const rows = _fStore ? allRows.filter(r => r.store_name === _fStore) : allRows;
 
     if (diffDays === 1) {
@@ -495,7 +498,7 @@ function _htmlFilters(isSPV) {
   return `
     <div class="card" style="margin-bottom:18px;padding:11px 16px">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <select class="ctrl-select" id="mpFilter" onchange="_fMp=this.value;refreshPage()">
+        <select class="ctrl-select" id="mpFilter" onchange="_fMp=this.value;_fStore='';refreshPage()">
           <option value="">Semua Marketplace</option>
           <option value="shopee">Shopee</option>
           <option value="lazada">Lazada</option>

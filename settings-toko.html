@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" href="img/logo-adsy.png">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kelola Toko — MarketDash</title>
+<link rel="stylesheet" href="css/main.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<div class="app-shell">
+  <div id="sidebar-slot"></div>
+  <div class="main-content">
+    <div id="header-slot"></div>
+    <div class="page">
+      <div id="pageContent"></div>
+    </div>
+  </div>
+</div>
+<script src="js/config.js"></script>
+<script src="js/db.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/app.js"></script>
+<script src="js/upload.js"></script>
+<script>
+let _user;
+let _stActiveMp = 'shopee';
+let _stStores = [];
+const MP_TABS = [
+  { key: 'shopee', label: 'Shopee' },
+  { key: 'tiktok', label: 'TikTok' },
+  { key: 'lazada', label: 'Lazada' },
+];
+
+(async () => {
+  _user = await requireAuth();
+  if (!_user) return;
+  const profiles = await dbGetAllProfiles().catch(() => []);
+  _user._color = _user.role === 'spv' ? '#EF233C' : assignUserColor(profiles, _user.id);
+  renderLayout('settings-toko', _user);
+
+  document.getElementById('pageContent').innerHTML = `
+    <div style="margin-bottom:14px">
+      <h2 style="font-weight:800;margin-bottom:4px">Kelola Toko</h2>
+      <div style="color:var(--text-3);font-size:.85rem">Daftar toko per marketplace — dipakai saat upload data & filter Analisis/Product</div>
+    </div>
+
+    <div class="card">
+      <div class="date-presets" id="stTabs" style="margin-bottom:16px"></div>
+
+      <div style="display:flex;gap:8px;margin-bottom:18px">
+        <input type="text" id="stNewName" class="ctrl-input" placeholder="Nama toko baru, mis. Adsy Official" style="flex:1;min-width:0" onkeydown="if(event.key==='Enter')addStore()">
+        <button class="btn btn-primary btn-sm" onclick="addStore()">+ Tambah</button>
+      </div>
+
+      <div id="stList"></div>
+    </div>
+  `;
+
+  _renderTabs();
+  await loadStores();
+})();
+
+function _renderTabs() {
+  document.getElementById('stTabs').innerHTML = MP_TABS.map(t => `
+    <button class="date-preset ${_stActiveMp === t.key ? 'active' : ''}" onclick="setStTab('${t.key}')">${t.label}</button>
+  `).join('');
+}
+
+function setStTab(mp) {
+  _stActiveMp = mp;
+  _renderTabs();
+  loadStores();
+}
+
+async function loadStores() {
+  const el = document.getElementById('stList');
+  el.innerHTML = `<div class="page-loading" style="padding:30px"><div class="spinner"></div></div>`;
+  try {
+    _stStores = await dbGetStores(_stActiveMp);
+    _renderList();
+  } catch (e) {
+    el.innerHTML = `<div style="color:var(--danger);padding:20px">Gagal memuat: ${e.message}</div>`;
+  }
+}
+
+function _renderList() {
+  const el = document.getElementById('stList');
+  if (!_stStores.length) {
+    el.innerHTML = `<div class="empty"><div class="icon">🏪</div>Belum ada toko untuk ${MP_TABS.find(t=>t.key===_stActiveMp).label}</div>`;
+    return;
+  }
+  el.innerHTML = `
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Nama Toko</th><th>Ditambahkan</th><th></th></tr></thead>
+        <tbody>
+          ${_stStores.map(s => `
+            <tr>
+              <td style="font-weight:600">${_escapeHtml(s.name)}</td>
+              <td style="font-size:.78rem;color:var(--text-3)">${new Date(s.created_at).toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'})}</td>
+              <td><button class="btn btn-sm" style="background:#FEE2E2;color:#EF233C;border:none;cursor:pointer;border-radius:8px;padding:5px 12px;font-weight:700;font-size:.78rem"
+                onclick="removeStore('${s.id}','${_escapeHtml(s.name)}')">Hapus</button></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function addStore() {
+  const input = document.getElementById('stNewName');
+  const name = input.value.trim();
+  if (!name) { input.style.borderColor = 'var(--danger)'; input.focus(); return; }
+  try {
+    await dbAddStore(_stActiveMp, name);
+    input.value = '';
+    input.style.borderColor = '';
+    showToast(`✅ Toko "${name}" ditambahkan`, 'success');
+    await loadStores();
+  } catch (e) {
+    showToast('❌ ' + e.message, 'error');
+  }
+}
+
+async function removeStore(id, name) {
+  if (!confirm(`Hapus toko "${name}"? Data order yang sudah ada tidak akan terhapus.`)) return;
+  try {
+    await dbDeleteStore(id);
+    showToast('✅ Toko dihapus', 'success');
+    await loadStores();
+  } catch (e) {
+    showToast('❌ ' + e.message, 'error');
+  }
+}
+
+function _escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+</script>
+</body>
+</html>

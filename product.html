@@ -43,11 +43,17 @@ const CANCEL_WORDS = ['batal','cancel','cancelled','canceled'];
   await refreshPage();
 })();
 
-function setMpFilter(mp) {
+async function setMpFilter(mp) {
   _mpFilter = mp;
   document.querySelectorAll('.mp-filter-btn').forEach(b => {
     b.className = 'btn btn-sm ' + (b.dataset.mp === mp ? 'btn-primary' : 'btn-outline') + ' mp-filter-btn';
   });
+  _storeFilter = '';
+  _storeOptions = await dbGetStores(mp || undefined).catch(() => []);
+  const sel = document.getElementById('storeFilter');
+  if (sel) sel.innerHTML = `<option value="">Semua Toko</option>` +
+    _storeOptions.map(s => `<option value="${s.name}">${s.name}</option>`).join('');
+  _buildSkuData();
   renderAll();
 }
 
@@ -78,9 +84,12 @@ async function refreshPage() {
     const filters = { dateFrom: from, dateTo: to };
     if (!isSPV) filters.advId = _user.id;
 
-    const orders = await dbGetAllMarketplaceOrders(filters);
+    const [orders, storeList] = await Promise.all([
+      dbGetAllMarketplaceOrders(filters),
+      dbGetStores(_mpFilter || undefined).catch(() => []),
+    ]);
     _validOrders = orders.filter(t => !CANCEL_WORDS.some(k => String(t.status||'').toLowerCase().includes(k)));
-    _storeOptions = [...new Set(_validOrders.map(t => t.store_name).filter(Boolean))].sort();
+    _storeOptions = storeList;
 
     _buildSkuData();
 
@@ -99,7 +108,7 @@ async function refreshPage() {
           <button class="btn btn-outline btn-sm mp-filter-btn" data-mp="lazada" onclick="setMpFilter('lazada')" style="color:#0F146D;border-color:#0F146D">Lazada</button>
           <select class="ctrl-select" id="storeFilter" onchange="setStoreFilter(this.value)" style="margin-left:auto">
             <option value="">Semua Toko</option>
-            ${_storeOptions.map(s => `<option value="${s}" ${s===_storeFilter?'selected':''}>${s}</option>`).join('')}
+            ${_storeOptions.map(s => `<option value="${s.name}" ${s.name===_storeFilter?'selected':''}>${s.name}</option>`).join('')}
           </select>
         </div>
       </div>
