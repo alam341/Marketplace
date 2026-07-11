@@ -29,7 +29,8 @@
 <script src="js/upload.js"></script>
 <script>
 let _user, _profiles = [], _skuData = [], _skuChart;
-let _search = '', _mpFilter = '';
+let _search = '', _mpFilter = '', _storeFilter = '';
+let _validOrders = [], _storeOptions = [];
 const CANCEL_WORDS = ['batal','cancel','cancelled','canceled'];
 
 (async () => {
@@ -50,6 +51,25 @@ function setMpFilter(mp) {
   renderAll();
 }
 
+function setStoreFilter(store) {
+  _storeFilter = store;
+  _buildSkuData();
+  renderAll();
+}
+
+function _buildSkuData() {
+  const valid = _storeFilter ? _validOrders.filter(t => t.store_name === _storeFilter) : _validOrders;
+  const skuMap = {};
+  valid.forEach(t => {
+    const sku = t.sku || '-';
+    if (!skuMap[sku]) skuMap[sku] = { sku, product: t.product || '-', shopee:0, tiktok:0, lazada:0, total_qty:0, total_omset:0 };
+    skuMap[sku][t.marketplace] = (skuMap[sku][t.marketplace]||0) + (t.qty||0);
+    skuMap[sku].total_qty   += (t.qty||0);
+    skuMap[sku].total_omset += (t.total||0);
+  });
+  _skuData = Object.values(skuMap).sort((a,b) => b.total_qty - a.total_qty);
+}
+
 async function refreshPage() {
   showLoading();
   try {
@@ -59,18 +79,10 @@ async function refreshPage() {
     if (!isSPV) filters.advId = _user.id;
 
     const orders = await dbGetAllMarketplaceOrders(filters);
-    const valid = orders.filter(t => !CANCEL_WORDS.some(k => String(t.status||'').toLowerCase().includes(k)));
+    _validOrders = orders.filter(t => !CANCEL_WORDS.some(k => String(t.status||'').toLowerCase().includes(k)));
+    _storeOptions = [...new Set(_validOrders.map(t => t.store_name).filter(Boolean))].sort();
 
-    const skuMap = {};
-    valid.forEach(t => {
-      const sku = t.sku || '-';
-      if (!skuMap[sku]) skuMap[sku] = { sku, product: t.product || '-', shopee:0, tiktok:0, lazada:0, total_qty:0, total_omset:0 };
-      skuMap[sku][t.marketplace] = (skuMap[sku][t.marketplace]||0) + (t.qty||0);
-      skuMap[sku].total_qty   += (t.qty||0);
-      skuMap[sku].total_omset += (t.total||0);
-    });
-
-    _skuData = Object.values(skuMap).sort((a,b) => b.total_qty - a.total_qty);
+    _buildSkuData();
 
     document.getElementById('pageContent').innerHTML = `
       <div style="margin-bottom:14px">
@@ -85,6 +97,10 @@ async function refreshPage() {
           <button class="btn btn-outline btn-sm mp-filter-btn" data-mp="shopee" onclick="setMpFilter('shopee')" style="color:#EE4D2D;border-color:#EE4D2D">Shopee</button>
           <button class="btn btn-outline btn-sm mp-filter-btn" data-mp="tiktok" onclick="setMpFilter('tiktok')" style="color:#888;border-color:#888">TikTok</button>
           <button class="btn btn-outline btn-sm mp-filter-btn" data-mp="lazada" onclick="setMpFilter('lazada')" style="color:#0F146D;border-color:#0F146D">Lazada</button>
+          <select class="ctrl-select" id="storeFilter" onchange="setStoreFilter(this.value)" style="margin-left:auto">
+            <option value="">Semua Toko</option>
+            ${_storeOptions.map(s => `<option value="${s}" ${s===_storeFilter?'selected':''}>${s}</option>`).join('')}
+          </select>
         </div>
       </div>
 

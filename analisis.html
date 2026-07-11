@@ -118,7 +118,8 @@
 <script>
 // ── State ─────────────────────────────────────────────────────────────────────
 let _user, _profiles = [];
-let _fMp = '', _fAdv = '';
+let _fMp = '', _fAdv = '', _fStore = '';
+let _storeOptions = [];
 let _sortBy = 'qty'; // 'qty' | 'omset'
 let _charts = new Map();
 let _overallChart = null;
@@ -164,20 +165,22 @@ async function refreshPage() {
     else if (_fAdv) filters.advId = _fAdv;
 
     const allRows = await dbGetAllMarketplaceOrders(filters);
+    _storeOptions = [...new Set(allRows.map(r => r.store_name).filter(Boolean))].sort();
+    const rows = _fStore ? allRows.filter(r => r.store_name === _fStore) : allRows;
 
     if (diffDays === 1) {
       // Exactly 2 days → comparison mode
-      _cachedRows1 = allRows.filter(r => r.date === from);
-      _cachedRows2 = allRows.filter(r => r.date === to);
+      _cachedRows1 = rows.filter(r => r.date === from);
+      _cachedRows2 = rows.filter(r => r.date === to);
       _cachedMeta  = { from, to, mode: 'comparison' };
     } else if (diffDays === 0) {
       // Single day
-      _cachedRows1 = allRows;
+      _cachedRows1 = rows;
       _cachedRows2 = null;
       _cachedMeta  = { from, to, mode: 'single' };
     } else {
       // Multi-day aggregate
-      _cachedRows1 = allRows;
+      _cachedRows1 = rows;
       _cachedRows2 = null;
       _cachedMeta  = { from, to, mode: 'multi' };
     }
@@ -498,6 +501,10 @@ function _htmlFilters(isSPV) {
           <option value="lazada">Lazada</option>
           <option value="tiktok">TikTok</option>
         </select>
+        <select class="ctrl-select" id="storeFilter" onchange="_fStore=this.value;refreshPage()">
+          <option value="">Semua Toko</option>
+          ${_storeOptions.map(s => `<option value="${s}" ${s===_fStore?'selected':''}>${s}</option>`).join('')}
+        </select>
         ${isSPV ? `
           <select class="ctrl-select" id="advFilter" onchange="_fAdv=this.value;refreshPage()">
             <option value="">Semua ADV</option>
@@ -519,6 +526,8 @@ function _htmlFilters(isSPV) {
 function _syncFilters(isSPV) {
   const mp = document.getElementById('mpFilter');
   if (mp) mp.value = _fMp;
+  const store = document.getElementById('storeFilter');
+  if (store) store.value = _fStore;
   if (isSPV) {
     const adv = document.getElementById('advFilter');
     if (adv) adv.value = _fAdv;
